@@ -39,6 +39,36 @@ def test_funcionario_nao_desfaz_pagamento(admin):
         payment_service.undo_payment(1, funcionario)
 
 
+def test_bloqueio_apos_seguidas_senhas_erradas(admin):
+    """A API fica exposta no Wi-Fi: senha não pode ser testada sem limite."""
+    from app.security.authentication import login_throttle
+
+    for _ in range(login_throttle.max_attempts):
+        with pytest.raises(AuthenticationError):
+            user_service.authenticate("admin", "errada")
+
+    # Agora nem a senha correta passa: a conta está temporariamente bloqueada.
+    with pytest.raises(AuthenticationError, match="Muitas tentativas"):
+        user_service.authenticate("admin", "senha123")
+
+    assert login_throttle.locked_for("admin") > 0
+
+
+def test_bloqueio_e_temporario_e_zera_no_acerto(admin):
+    from app.security.authentication import login_throttle
+
+    with pytest.raises(AuthenticationError):
+        user_service.authenticate("admin", "errada")
+    user_service.authenticate("admin", "senha123")
+
+    # O acerto zera o contador, então erros anteriores não somam para o bloqueio.
+    assert login_throttle.locked_for("admin") == 0
+    for _ in range(login_throttle.max_attempts - 1):
+        with pytest.raises(AuthenticationError, match="incorretos"):
+            user_service.authenticate("admin", "errada")
+    assert login_throttle.locked_for("admin") == 0
+
+
 def test_usuario_duplicado(admin):
     from app.services.errors import BusinessError
 

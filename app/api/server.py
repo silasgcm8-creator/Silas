@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass
 
 from app.config import APP_NAME, APP_VERSION, settings
+from app.security.authentication import token_store
 
 
 def create_app():  # noqa: ANN201 - tipo depende do FastAPI instalado
@@ -103,6 +104,9 @@ class ApiServer:
             self._thread.join(timeout=5)
         self._server = None
         self._thread = None
+        # Desligar o acesso encerra a sessão de todos os aparelhos: os tokens
+        # emitidos não voltam a valer quando o acesso for religado.
+        token_store.clear()
         return self.status("Acesso pelo celular desligado.")
 
     def status(self, detail: str = "") -> ServerStatus:

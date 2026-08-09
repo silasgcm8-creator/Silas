@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
+
 from app.database.connection import session_scope
 from app.models.log import LogAction
 from app.models.payment import Payment
@@ -17,6 +19,8 @@ from app.security.permissions import Permission, require
 from app.services import log_service
 from app.services.errors import BusinessError, NotFoundError
 from app.utils.money import format_brl, from_cents
+
+ALREADY_PAID = "Esta parcela já está marcada como paga."
 
 
 @dataclass(frozen=True)
@@ -47,38 +51,53 @@ def mark_as_paid(
         if installment is None:
             raise NotFoundError("Parcela não encontrada.")
         if installment.pago:
-            raise BusinessError("Esta parcela já está marcada como paga.")
+            raise BusinessError(ALREADY_PAID)
 
         credit = CreditRepository(session).get_with_client(installment.crediario_id)
         if credit is None:
             raise NotFoundError("Crediário não encontrado.")
 
-        installment.pago = True
-        installment.pago_em = payment_date
+        # Os dados do recebimento são copiados antes da baixa: depois dela o
+        # estado da parcela em memória não é mais a fonte da verdade.
+        numero, valor = installment.numero, installment.valor
+        cliente_nome, total_parcelas = credit.client.nome, credit.parcelas
+        credit_id, cliente_id = credit.id, credit.cliente_id
 
-        session.add(
-            Payment(
-                parcela_id=installment.id,
-                crediario_id=credit.id,
-                cliente_id=credit.cliente_id,
-                valor=installment.valor,
-                data_pagamento=payment_date,
-                usuario_id=actor.id if actor else None,
-                usuario_nome=actor.nome if actor else "sistema",
+        # Baixa condicional: só uma origem consegue virar a parcela de aberta
+        # para paga. Sem o `pago = False` no WHERE, balcão e celular operando
+        # juntos registrariam dois recebimentos para a mesma parcela.
+        if not installments.settle(installment_id, payment_date):
+            raise BusinessError(ALREADY_PAID)
+
+        try:
+            session.add(
+                Payment(
+                    parcela_id=installment_id,
+                    crediario_id=credit_id,
+                    cliente_id=cliente_id,
+                    valor=valor,
+                    data_pagamento=payment_date,
+                    usuario_id=actor.id if actor else None,
+                    usuario_nome=actor.nome if actor else "sistema",
+                )
             )
-        )
+            session.flush()
+        except IntegrityError as exc:
+            # Rede de segurança do banco: o índice único de `parcela_id` barra
+            # um segundo recebimento mesmo que a baixa acima tenha passado.
+            raise BusinessError(ALREADY_PAID) from exc
 
         log_service.record(
             session,
             LogAction.INSTALLMENT_PAID,
             actor,
             detalhes=(
-                f"{credit.client.nome} — parcela {installment.numero}/{credit.parcelas}"
-                f" de {format_brl(installment.valor)}"
+                f"{cliente_nome} — parcela {numero}/{total_parcelas}"
+                f" de {format_brl(valor)}"
             ),
-            cliente_id=credit.cliente_id,
-            crediario_id=credit.id,
-            parcela_id=installment.id,
+            cliente_id=cliente_id,
+            crediario_id=credit_id,
+            parcela_id=installment_id,
         )
 
 

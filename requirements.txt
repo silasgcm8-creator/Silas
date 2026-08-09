@@ -23,8 +23,9 @@ bcrypt==4.2.0
 openpyxl==3.1.5
 reportlab==4.2.2
 
-# Testes
+# Testes (httpx é usado pelo TestClient nos testes da API local)
 pytest==8.3.2
+httpx==0.27.2
 
 # Geração do executável
 pyinstaller==6.10.0

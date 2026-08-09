@@ -35,19 +35,46 @@ def from_cents(cents: int | None) -> Decimal:
     return (Decimal(int(cents or 0)) / 100).quantize(CENT)
 
 
+def _dot_is_thousand_separator(cleaned: str) -> bool:
+    """Decide se o ponto separa milhar em um texto que não tem vírgula.
+
+    No Brasil `1.500` é mil e quinhentos, não um e meio. Sem essa distinção o
+    funcionário que digita `1.500` cadastraria um crediário de R$ 1,50.
+
+    É milhar quando há mais de um ponto (`1.234.567`) ou quando o ponto vem
+    seguido de exatamente 3 dígitos (`1.500`). Continua decimal quando a parte
+    inteira é apenas `0` (`0.500` = cinquenta centavos) ou quando não são 3
+    casas (`1234.56`).
+    """
+    groups = cleaned.split(".")
+    if len(groups) > 2:
+        return True
+    head, tail = groups
+    return len(tail) == 3 and head not in ("", "0")
+
+
 def parse_brl(text: str) -> Decimal:
-    """Aceita '1.234,56', '1234.56', 'R$ 1.234,56' e devolve Decimal."""
+    """Aceita '1.234,56', '1.500', '1234.56', 'R$ 1.234,56' e devolve Decimal."""
     cleaned = (text or "").strip()
     for token in ("R$", "r$", " ", "\u00a0"):
         cleaned = cleaned.replace(token, "")
     if not cleaned:
         return ZERO
+
+    negative = cleaned.startswith("-")
+    cleaned = cleaned.lstrip("+-")
+
     if "," in cleaned:
+        # Com vírgula, ela é a casa decimal e o ponto é sempre milhar.
         cleaned = cleaned.replace(".", "").replace(",", ".")
+    elif "." in cleaned and _dot_is_thousand_separator(cleaned):
+        cleaned = cleaned.replace(".", "")
+
     try:
-        return Decimal(cleaned).quantize(CENT, rounding=ROUND_HALF_UP)
-    except InvalidOperation as exc:  # pragma: no cover - defensivo
+        amount = Decimal(cleaned).quantize(CENT, rounding=ROUND_HALF_UP)
+    except InvalidOperation as exc:
         raise ValueError(f"Valor monetário inválido: {text!r}") from exc
+    return -amount if negative else amount
 
 
 def format_brl(value: object, symbol: bool = True) -> str:

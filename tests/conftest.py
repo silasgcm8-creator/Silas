@@ -20,6 +20,12 @@ def clean_database():
     from app.config import settings
     from app.database import connection
     from app.database.migrations import run_migrations
+    from app.security.authentication import login_throttle, token_store
+
+    # Estado em memória também precisa começar limpo, senão o bloqueio por
+    # tentativas e os tokens da API vazam de um teste para o outro.
+    login_throttle.reset()
+    token_store.clear()
 
     connection.dispose_engine()
     settings.ensure_dirs()

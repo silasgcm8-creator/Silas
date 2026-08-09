@@ -18,7 +18,8 @@ APP_ORG = "SYS"
 
 #: Marca gravada na tabela de configurações; usada para validar backups.
 DB_SIGNATURE = "SYS_CREDIARIO"
-SCHEMA_VERSION = 1
+#: 2 — índice único de recebimento por parcela (impede pagamento em duplicidade).
+SCHEMA_VERSION = 2
 
 
 def base_dir() -> Path:
@@ -49,6 +50,8 @@ class Settings:
     api_host: str
     api_port: int
     session_timeout_minutes: int
+    login_max_attempts: int
+    login_lock_minutes: int
 
     def ensure_dirs(self) -> None:
         for folder in (self.base_dir, self.data_dir, self.backup_dir, self.log_dir):
@@ -81,6 +84,8 @@ def get_settings() -> Settings:
         api_host=os.environ.get("SYS_API_HOST", "0.0.0.0"),
         api_port=int(os.environ.get("SYS_API_PORT", "8765")),
         session_timeout_minutes=int(os.environ.get("SYS_SESSION_TIMEOUT", "720")),
+        login_max_attempts=int(os.environ.get("SYS_LOGIN_MAX_ATTEMPTS", "5")),
+        login_lock_minutes=int(os.environ.get("SYS_LOGIN_LOCK_MINUTES", "10")),
     )
     return settings
 

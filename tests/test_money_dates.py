@@ -62,3 +62,27 @@ def test_formatacao_brasileira():
     assert format_brl(Decimal("1234.5")) == "R$ 1.234,50"
     assert parse_brl("R$ 1.234,50") == Decimal("1234.50")
     assert parse_brl("1234.50") == Decimal("1234.50")
+
+
+def test_ponto_de_milhar_sem_virgula():
+    """`1.500` digitado no balcão é mil e quinhentos, não um real e cinquenta."""
+    assert parse_brl("1.500") == Decimal("1500.00")
+    assert parse_brl("R$ 1.500") == Decimal("1500.00")
+    assert parse_brl("12.345") == Decimal("12345.00")
+    assert parse_brl("1.234.567") == Decimal("1234567.00")
+
+
+def test_ponto_decimal_continua_valendo():
+    assert parse_brl("1234.56") == Decimal("1234.56")
+    assert parse_brl("1.50") == Decimal("1.50")
+    assert parse_brl("1.5") == Decimal("1.50")
+    assert parse_brl("0.500") == Decimal("0.50")
+
+
+def test_valores_vazios_negativos_e_invalidos():
+    assert parse_brl("") == Decimal("0.00")
+    assert parse_brl("   ") == Decimal("0.00")
+    assert parse_brl("-1.500") == Decimal("-1500.00")
+    assert parse_brl("-2,50") == Decimal("-2.50")
+    with pytest.raises(ValueError):
+        parse_brl("mil reais")

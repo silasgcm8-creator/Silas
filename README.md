@@ -102,6 +102,8 @@ cadastrado a ficha financeira abre direto.
 3. Informe:
    - **Valor total da compra** — ex.: `1200,00`
    - **Entrada** — ex.: `200,00`
+   - Os valores aceitam as formas usadas no dia a dia: `1200,00`, `1.200,00`,
+     `1.200` e `1200`. Digitar `1.500` cadastra mil e quinhentos reais.
    - **Quantidade de parcelas** — ex.: `5`
    - **Data do primeiro vencimento**
 4. A simulação aparece na hora:
@@ -192,6 +194,10 @@ O celular nunca acessa o arquivo do banco: tudo passa por uma API com login e
 token. Consultas disponíveis: clientes, saldo, crediários, parcelas, atrasados,
 painel e registro de pagamento para quem tem permissão.
 
+**Celular perdido ou roubado:** encerrar a sessão (`POST /auth/logout`) invalida
+o token na hora, e ele deixa de funcionar. Desligar o **Acesso pelo celular** nas
+configurações derruba todos os aparelhos de uma vez.
+
 > Se o Windows perguntar sobre o firewall, autorize o acesso em **redes privadas**.
 
 ---
@@ -218,6 +224,14 @@ python -m pytest
 Cobrem CPF válido/inválido/duplicado, cálculo de parcelas, diferença de
 centavos, geração de datas, parcela atrasada, registro e estorno de pagamento,
 cálculo de saldo, total vencido, permissões e backup.
+
+Também cobrem a leitura de valores em reais (`1.500` = mil e quinhentos), a
+recusa de dois recebimentos para a mesma parcela, a API do celular (token,
+permissão do funcionário e encerramento de sessão) e a migração de bancos
+criados por versões anteriores.
+
+Os mesmos testes rodam automaticamente no GitHub a cada envio de código
+(aba **Actions**), em Python 3.11 e 3.12.
 
 ---
 
@@ -266,5 +280,11 @@ Nenhuma linha de regra de negócio precisa mudar.
 - Senhas com hash forte; nunca em texto puro.
 - Todo acesso ao banco passa por ORM com parâmetros — sem SQL Injection.
 - Permissões por papel e registro de auditoria das ações sensíveis.
+- Após **5 senhas erradas seguidas**, o usuário fica bloqueado por **10 minutos**.
+  O bloqueio se desfaz sozinho e uma senha correta zera a contagem. Para ajustar:
+  `SYS_LOGIN_MAX_ATTEMPTS` e `SYS_LOGIN_LOCK_MINUTES`.
+- Uma parcela aceita **um único recebimento**, garantido pelo próprio banco: o
+  caixa não conta o mesmo pagamento duas vezes se o balcão e o celular
+  registrarem a mesma parcela ao mesmo tempo.
 - Cliente com histórico financeiro não pode ser excluído; a exclusão
   administrativa exige confirmação do CPF.

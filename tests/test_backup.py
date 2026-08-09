@@ -48,6 +48,27 @@ def test_restaurar_arquivo_invalido_falha(admin, tmp_path):
         backup_service.restore_backup(ruim, admin)
 
 
+def test_backup_de_versao_antiga_e_migrado_na_restauracao(admin, cliente, tmp_path):
+    """Restaurar um arquivo gerado por versão anterior não pode deixar o banco velho."""
+    import sqlalchemy as sa
+
+    from app.database.connection import get_engine
+    from app.models.payment import UNIQUE_PAYMENT_INDEX
+
+    backup = backup_service.create_backup(tmp_path / "versao_antiga.db", admin)
+
+    # Deixa o arquivo de backup no formato anterior, sem o índice único.
+    antigo = sa.create_engine(f"sqlite:///{backup}")
+    with antigo.begin() as connection:
+        connection.execute(sa.text(f"DROP INDEX {UNIQUE_PAYMENT_INDEX}"))
+    antigo.dispose()
+
+    backup_service.restore_backup(backup, admin)
+
+    indices = {i["name"] for i in sa.inspect(get_engine()).get_indexes("pagamentos")}
+    assert UNIQUE_PAYMENT_INDEX in indices
+
+
 def test_nome_padrao_do_backup():
     nome = backup_service.default_backup_name()
     assert nome.startswith("SYS_Crediario_Backup_")
