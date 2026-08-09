@@ -112,4 +112,4 @@ def test_funcionario_registra_pagamento_mas_nao_desfaz(client, admin, crediario)
     repetido = client.post("/pagamentos", json={"parcela_id": parcela.id}, headers=auth(token))
     assert repetido.status_code == 409
     hoje = date.today()
-    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")

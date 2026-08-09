@@ -77,7 +77,7 @@ class DashboardPage(QWidget):
         layout.addLayout(panels, 1)
 
     def refresh(self) -> None:
-        data = report_service.dashboard()
+        data = report_service.dashboard(self.ctx.user)
         self.card_receber.set_value(format_brl(data.total_a_receber))
         self.card_vencido.set_value(
             format_brl(data.total_vencido),
@@ -95,7 +95,7 @@ class DashboardPage(QWidget):
         )
 
         rows = []
-        for item in report_service.upcoming(limit=12):
+        for item in report_service.upcoming(self.ctx.user, limit=12):
             rows.append(
                 [
                     text_item(item.cliente, key=item.crediario_id),
@@ -108,7 +108,7 @@ class DashboardPage(QWidget):
         self.upcoming_table.fill(rows)
 
         late_rows = []
-        for item in report_service.recent_late(limit=12):
+        for item in report_service.recent_late(self.ctx.user, limit=12):
             late_rows.append(
                 [
                     text_item(item.cliente, key=item.crediario_id),

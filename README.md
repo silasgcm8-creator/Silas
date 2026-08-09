@@ -86,10 +86,14 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 | Cancelar documento de cobrança | ✔ | — |
 | Cadastrar / alterar contas bancárias | ✔ | — |
 | Configurar modalidades de cobrança | ✔ | — |
-| Abrir WhatsApp | ✔ | ✔ |
+| Conferir os recebimentos que ele mesmo registrou | ✔ | ✔ |
 | Estornar pagamento | ✔ | — |
 | Excluir cliente | ✔ | — |
-| Ver atrasados e relatórios | ✔ | — |
+| **Painel financeiro e valores totais** | ✔ | — |
+| **Atrasados, inadimplência e dias de atraso** | ✔ | — |
+| **Relatórios e exportações financeiras** | ✔ | — |
+| **Total recebido pela loja no período** | ✔ | — |
+| Abrir cobrança pelo WhatsApp | ✔ | — |
 | Restaurar backup | ✔ | — |
 | Verificar banco de dados | ✔ | — |
 | Configurar empresa, Pix e backup | ✔ | — |
@@ -100,6 +104,16 @@ não contorna nenhuma delas nem chamando o código direto ou pela API do celular
 Ele também não vê os menus administrativos — a tela inicial dele é um terminal
 com quatro ações grandes (**Novo cliente**, **Registrar pagamento**, **Pesquisar
 cliente**, **Comprovantes**) e atalhos `Ctrl+N`, `Ctrl+R`, `Ctrl+F` e `Ctrl+P`.
+
+**Situação financeira da loja é do dono.** Qualquer número que descreva o
+negócio como um todo — total a receber, total recebido, valor vencido, clientes
+em atraso, dias de atraso — passa por uma única permissão
+(`financeiro.visao_global`), conferida **antes da consulta ao banco**. Para o
+funcionário esses componentes não aparecem zerados: eles não existem. Na tela de
+**Recebimentos** ele vê apenas os pagamentos que ele mesmo registrou, o
+suficiente para conferir a operação e reimprimir o comprovante. Na API local, os
+endereços `/painel` e `/atrasados` respondem **403** ao token dele, sem devolver
+dado algum junto.
 
 ---
 

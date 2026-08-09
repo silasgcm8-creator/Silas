@@ -292,7 +292,7 @@ class ClientDetailDialog(QDialog):
 
     def _whatsapp(self) -> None:
         open_charge_whatsapp(
-            self, self.client_id, self.summary.nome, self.summary.telefone
+            self.ctx, self, self.client_id, self.summary.nome, self.summary.telefone
         )
 
 
@@ -474,15 +474,19 @@ class ClientsPage(QWidget):
         for index, row in enumerate(rows):
             self.table.setCellWidget(index, 5, self._actions(row.id, row.nome, row.telefone))
         self.table.setColumnWidth(5, 140)
-        # Totais somados no banco, sobre toda a busca — não apenas a página.
-        saldo, vencido = client_service.search_totals(self._term)
         primeiro = self._page * tamanho + 1 if rows else 0
         ultimo = self._page * tamanho + len(rows)
         faixa = f"{primeiro}–{ultimo} de {total}" if total else "nenhum cliente"
-        self.total_label.setText(
-            f"Mostrando {faixa}   •   saldo {format_brl(saldo)}   •   "
-            f"vencido {format_brl(vencido)}"
-        )
+        # Somatório da carteira inteira: só para quem tem a visão financeira.
+        # Para o funcionário o rodapé mostra apenas a contagem da lista.
+        if self.ctx.can(Permission.FINANCE_OVERVIEW):
+            saldo, vencido = client_service.search_totals(self.ctx.user, self._term)
+            self.total_label.setText(
+                f"Mostrando {faixa}   •   saldo {format_brl(saldo)}   •   "
+                f"vencido {format_brl(vencido)}"
+            )
+        else:
+            self.total_label.setText(f"Mostrando {faixa}")
         self.page_label.setText(f"Página {self._page + 1} de {ultima + 1}")
         self.prev_button.setEnabled(self._page > 0)
         self.next_button.setEnabled(self._page < ultima)
@@ -507,7 +511,7 @@ class ClientsPage(QWidget):
         edit_button.setEnabled(self.ctx.can(Permission.CLIENT_EDIT))
         whats_button = small("whatsapp", "Enviar cobrança pelo WhatsApp", GREEN)
         whats_button.clicked.connect(
-            lambda: open_charge_whatsapp(self, client_id, nome, telefone)
+            lambda: open_charge_whatsapp(self.ctx, self, client_id, nome, telefone)
         )
         whats_button.setEnabled(self.ctx.can(Permission.WHATSAPP))
 

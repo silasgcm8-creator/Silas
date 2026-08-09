@@ -44,9 +44,9 @@ MENU: list[tuple[str, str, Permission | None]] = [
     ("NOVO CREDIÁRIO", "plus", Permission.CREDIT_CREATE),
     ("CREDIÁRIOS", "list", Permission.CREDIT_VIEW),
     ("BOLETOS", "receipt", Permission.CHARGE_VIEW),
-    ("ATRASADOS", "alert", Permission.REPORT_FULL),
+    ("ATRASADOS", "alert", Permission.FINANCE_OVERVIEW),
     ("RECEBIMENTOS", "cash", Permission.PAYMENT_REGISTER),
-    ("RELATÓRIOS", "chart", Permission.REPORT_FULL),
+    ("RELATÓRIOS", "chart", Permission.FINANCE_OVERVIEW),
     ("BACKUP", "shield", Permission.BACKUP_RESTORE),
     ("CONFIGURAÇÕES", "gear", Permission.SETTINGS),
 ]
@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         self.payments_page = PaymentsPage(self.ctx)
 
         # O administrador começa no painel; o funcionário, no terminal simples.
-        self.is_admin_view = self.ctx.can(Permission.REPORT_FULL)
+        self.is_admin_view = self.ctx.can(Permission.FINANCE_OVERVIEW)
         if self.is_admin_view:
             self.home_page: QWidget = DashboardPage(self.ctx)
         else:
@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
             self.pages["BOLETOS"] = ChargesPage(self.ctx)
         if self.ctx.can(Permission.PAYMENT_REGISTER):
             self.pages["RECEBIMENTOS"] = self.payments_page
-        if self.ctx.can(Permission.REPORT_FULL):
+        if self.ctx.can(Permission.FINANCE_OVERVIEW):
             self.pages["ATRASADOS"] = LatePage(self.ctx)
             self.pages["RELATÓRIOS"] = ReportsPage(self.ctx)
         if self.ctx.can(Permission.BACKUP_RESTORE):

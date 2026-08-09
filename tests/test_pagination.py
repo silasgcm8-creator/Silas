@@ -79,13 +79,13 @@ def test_totais_somam_toda_a_busca_nao_so_a_pagina(admin, base_grande):
         actor=admin,
     )
 
-    saldo, _ = client_service.search_totals()
+    saldo, _ = client_service.search_totals(admin)
     assert saldo == Decimal("600.00")
 
     # Em uma página que nem contém o cliente devedor, o total continua correto.
     pagina_sem_devedor = client_service.list_clients(limit=10, offset=30)
     assert all(row.saldo == Decimal("0.00") for row in pagina_sem_devedor)
-    assert client_service.search_totals()[0] == Decimal("600.00")
+    assert client_service.search_totals(admin)[0] == Decimal("600.00")
 
 
 def test_api_pagina_os_clientes(admin, base_grande):

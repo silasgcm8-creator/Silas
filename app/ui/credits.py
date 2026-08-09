@@ -59,9 +59,15 @@ from app.utils.money import ZERO, format_brl, parse_brl
 from app.utils.whatsapp import OFFLINE_MESSAGE, build_message, open_whatsapp
 
 
-def open_charge_whatsapp(parent: QWidget, client_id: int, nome: str, telefone: str) -> None:
-    """Prepara a conversa de cobrança; o envio é sempre decisão do funcionário."""
-    total, oldest, count = report_service.client_overdue_summary(client_id)
+def open_charge_whatsapp(
+    ctx: AppContext, parent: QWidget, client_id: int, nome: str, telefone: str
+) -> None:
+    """Prepara a conversa de cobrança; o envio é sempre decisão do usuário.
+
+    Recebe o contexto porque o texto da mensagem traz valor vencido e dias de
+    atraso: o serviço confere a permissão de quem pediu antes de calcular.
+    """
+    total, oldest, count = report_service.client_overdue_summary(ctx.user, client_id)
     if count == 0:
         info(parent, "Sem valores vencidos", f"{nome} não possui parcelas vencidas.")
         return
@@ -476,7 +482,7 @@ class CreditDetailDialog(QDialog):
 
     def _whatsapp(self) -> None:
         open_charge_whatsapp(
-            self, self.detail.cliente_id, self.detail.cliente, self.detail.telefone
+            self.ctx, self, self.detail.cliente_id, self.detail.cliente, self.detail.telefone
         )
 
 
@@ -546,10 +552,14 @@ class CreditsPage(QWidget):
                 for row in rows
             ]
         )
-        saldo = sum((row.saldo for row in rows), ZERO)
-        self.total_label.setText(
-            f"{len(rows)} crediários   •   saldo total {format_brl(saldo)}"
-        )
+        # "Saldo total" é valor consolidado da loja — some para o funcionário.
+        if self.ctx.can(Permission.FINANCE_OVERVIEW):
+            saldo = sum((row.saldo for row in rows), ZERO)
+            self.total_label.setText(
+                f"{len(rows)} crediários   •   saldo total {format_brl(saldo)}"
+            )
+        else:
+            self.total_label.setText(f"{len(rows)} crediários")
 
     def _open_selected(self) -> None:
         credit_id = self.table.selected_key()

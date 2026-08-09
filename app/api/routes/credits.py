@@ -72,8 +72,9 @@ def credit_detail(
 @router.get("/atrasados", response_model=list[LateOut])
 def late(
     ordem: str = "maior_valor_vencido",
-    _: SessionUser = Depends(require_permission(Permission.CREDIT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.FINANCE_OVERVIEW)),
 ) -> list[LateOut]:
+    """Inadimplência da loja. Bloqueada para o funcionário (403) antes da consulta."""
     return [
         LateOut(
             cliente_id=row.cliente_id,
@@ -86,15 +87,16 @@ def late(
             vencimento_antigo=row.vencimento_antigo,
             dias_atraso=row.dias_atraso,
         )
-        for row in report_service.late_clients(ordem)
+        for row in report_service.late_clients(user, ordem)
     ]
 
 
 @router.get("/painel", response_model=DashboardOut)
 def dashboard(
-    _: SessionUser = Depends(require_permission(Permission.REPORT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.FINANCE_OVERVIEW)),
 ) -> DashboardOut:
-    data = report_service.dashboard()
+    """Indicadores consolidados. Exclusivos do administrador."""
+    data = report_service.dashboard(user)
     return DashboardOut(
         total_a_receber=data.total_a_receber,
         total_vencido=data.total_vencido,

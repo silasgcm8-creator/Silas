@@ -316,9 +316,14 @@ def count_clients(term: str = "") -> int:
 
 
 def search_totals(
-    term: str = "", reference: date | None = None
+    actor: SessionUser, term: str = "", reference: date | None = None
 ) -> tuple[Decimal, Decimal]:
-    """Saldo e vencido de todos os clientes da busca (não só da página)."""
+    """Saldo e vencido de todos os clientes da busca (não só da página).
+
+    Somatório da carteira: com a busca vazia é o total a receber e o total
+    vencido da loja inteira. Portanto, exclusivo do administrador.
+    """
+    require(actor.role, Permission.FINANCE_OVERVIEW)
     with session_scope() as session:
         saldo, vencido = ClientRepository(session).totals_search(term, reference)
         return from_cents(saldo), from_cents(vencido)

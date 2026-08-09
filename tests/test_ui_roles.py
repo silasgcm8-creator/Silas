@@ -81,3 +81,25 @@ def test_navegacao_do_funcionario_nao_alcanca_tela_administrativa(qt_app, funcio
     janela = _window(funcionario)
     assert janela._go("CONFIGURAÇÕES") is None
     assert janela._go("BACKUP") is None
+
+
+def test_tela_inicial_do_funcionario_nao_tem_valor_nenhum(qt_app, funcionario):
+    """Nem zerado: o componente financeiro não deve existir para ele."""
+    from PySide6.QtWidgets import QLabel
+
+    from app.ui.context import AppContext
+    from app.ui.staff_home import StaffHomePage
+
+    pagina = StaffHomePage(AppContext(funcionario))
+    pagina.refresh()
+    textos = " ".join(rotulo.text() for rotulo in pagina.findChildren(QLabel))
+    for proibido in ("R$", "Recebido", "vencendo", "vencid", "atras"):
+        assert proibido not in textos, f"a tela do funcionário mostrou {proibido!r}"
+
+
+def test_recebimentos_do_funcionario_nao_totalizam_o_caixa(qt_app, funcionario, admin):
+    from app.ui.context import AppContext
+    from app.ui.payments import PaymentsPage
+
+    assert PaymentsPage(AppContext(funcionario)).total_label is None
+    assert PaymentsPage(AppContext(admin)).total_label is not None

@@ -59,7 +59,8 @@ def test_funcionario_tem_menos_permissoes_que_o_administrador():
         Permission.SETTINGS,
         Permission.API_CONTROL,
         Permission.DB_CHECK,
-        Permission.REPORT_FULL,
+        Permission.FINANCE_OVERVIEW,
+        Permission.WHATSAPP,
     }
     assert proibidas.isdisjoint(STAFF_PERMISSIONS)
 
@@ -70,13 +71,13 @@ def test_funcionario_nao_exclui_cliente(funcionario, cliente):
     assert len(client_service.list_clients()) == 1
 
 
-def test_funcionario_nao_estorna_pagamento(funcionario, parcela_paga):
+def test_funcionario_nao_estorna_pagamento(funcionario, admin, parcela_paga):
     with pytest.raises(PermissionDenied):
         payment_service.reverse_payment(parcela_paga, "motivo qualquer", funcionario)
 
     # O caixa segue intacto.
     hoje = date.today()
-    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")
 
 
 def test_funcionario_nao_restaura_backup(funcionario, admin, tmp_path):

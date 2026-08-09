@@ -1,4 +1,12 @@
-"""Indicadores do painel, tela de atrasados e relatórios por período."""
+"""Indicadores do painel, tela de atrasados e relatórios por período.
+
+Todo número deste módulo descreve a loja inteira — quanto há a receber, quanto
+entrou, quem está em atraso. Nada aqui é operação de balcão. Por isso cada
+função exige o usuário que está perguntando e confere
+``Permission.FINANCE_OVERVIEW`` **antes** de consultar o banco: a proteção vive
+aqui, não na tela nem na rota, e vale igual para a interface, para a API do
+celular e para qualquer script que importe o módulo.
+"""
 
 from __future__ import annotations
 
@@ -18,9 +26,16 @@ from app.models.payment import Payment
 from app.repositories.installment_repository import InstallmentRepository
 from app.repositories.payment_repository import PaymentRepository
 from app.repositories.reversal_repository import ReversalRepository
+from app.security.authentication import SessionUser
+from app.security.permissions import Permission, require
 from app.utils.dates import days_late, format_br, format_datetime_br, month_bounds
 from app.utils.export import export
 from app.utils.money import ZERO, format_brl, from_cents
+
+
+def _require_overview(actor: SessionUser) -> None:
+    """Porta única deste módulo. Roda antes de qualquer consulta."""
+    require(actor.role, Permission.FINANCE_OVERVIEW)
 
 
 @dataclass(frozen=True)
@@ -91,7 +106,8 @@ class ReportData:
         ]
 
 
-def dashboard(reference: date | None = None) -> DashboardData:
+def dashboard(actor: SessionUser, reference: date | None = None) -> DashboardData:
+    _require_overview(actor)
     reference = reference or date.today()
     month_start, month_end = month_bounds(reference)
 
@@ -145,7 +161,10 @@ def dashboard(reference: date | None = None) -> DashboardData:
     )
 
 
-def upcoming(reference: date | None = None, limit: int = 15) -> list[UpcomingRow]:
+def upcoming(
+    actor: SessionUser, reference: date | None = None, limit: int = 15
+) -> list[UpcomingRow]:
+    _require_overview(actor)
     with session_scope() as session:
         rows = InstallmentRepository(session).upcoming(reference, limit)
         return [
@@ -161,7 +180,10 @@ def upcoming(reference: date | None = None, limit: int = 15) -> list[UpcomingRow
         ]
 
 
-def recent_late(reference: date | None = None, limit: int = 10) -> list[UpcomingRow]:
+def recent_late(
+    actor: SessionUser, reference: date | None = None, limit: int = 10
+) -> list[UpcomingRow]:
+    _require_overview(actor)
     with session_scope() as session:
         rows = InstallmentRepository(session).recent_late(reference, limit)
         return [
@@ -178,8 +200,11 @@ def recent_late(reference: date | None = None, limit: int = 10) -> list[Upcoming
 
 
 def late_clients(
-    order: str = "maior_valor_vencido", reference: date | None = None
+    actor: SessionUser,
+    order: str = "maior_valor_vencido",
+    reference: date | None = None,
 ) -> list[LateRow]:
+    _require_overview(actor)
     with session_scope() as session:
         rows = InstallmentRepository(session).late_by_client(reference, order)
         return [
@@ -198,9 +223,14 @@ def late_clients(
 
 
 def client_overdue_summary(
-    client_id: int, reference: date | None = None
+    actor: SessionUser, client_id: int, reference: date | None = None
 ) -> tuple[Decimal, date | None, int]:
-    """Valor vencido, vencimento mais antigo e quantidade — base do WhatsApp."""
+    """Valor vencido, vencimento mais antigo e quantidade — base do WhatsApp.
+
+    É informação de cobrança (valor atrasado e dias de atraso), então segue a
+    mesma regra do resto do módulo, mesmo sendo de um cliente só.
+    """
+    _require_overview(actor)
     with session_scope() as session:
         rows = InstallmentRepository(session).late_details(client_id, reference)
         if not rows:
@@ -209,7 +239,10 @@ def client_overdue_summary(
         return total, rows[0].vencimento, len(rows)
 
 
-def report(inicio: date, fim: date, reference: date | None = None) -> ReportData:
+def report(
+    actor: SessionUser, inicio: date, fim: date, reference: date | None = None
+) -> ReportData:
+    _require_overview(actor)
     reference = reference or date.today()
     with session_scope() as session:
         sold = session.scalar(
@@ -265,8 +298,11 @@ def report(inicio: date, fim: date, reference: date | None = None) -> ReportData
     )
 
 
-def receivables_rows(reference: date | None = None) -> list[tuple[object, ...]]:
+def receivables_rows(
+    actor: SessionUser, reference: date | None = None
+) -> list[tuple[object, ...]]:
     """Linhas detalhadas de tudo que está em aberto (usado na exportação)."""
+    _require_overview(actor)
     reference = reference or date.today()
     with session_scope() as session:
         stmt = (
@@ -345,18 +381,22 @@ REVERSALS_HEADERS = (
 SUMMARY_HEADERS = ("Indicador", "Valor")
 
 
-def export_report(path: Path, data: ReportData, fmt: str = "csv") -> Path:
+def export_report(
+    actor: SessionUser, path: Path, data: ReportData, fmt: str = "csv"
+) -> Path:
+    _require_overview(actor)
     return export(fmt, path, SUMMARY_HEADERS, data.as_rows())
 
 
-def export_receivables(path: Path, fmt: str = "csv") -> Path:
-    return export(fmt, path, RECEIVABLES_HEADERS, receivables_rows())
+def export_receivables(actor: SessionUser, path: Path, fmt: str = "csv") -> Path:
+    return export(fmt, path, RECEIVABLES_HEADERS, receivables_rows(actor))
 
 
-def reversals_rows(inicio: date, fim: date) -> list[tuple[object, ...]]:
+def reversals_rows(actor: SessionUser, inicio: date, fim: date) -> list[tuple[object, ...]]:
     """Linhas do relatório de estornos, na ordem dos cabeçalhos."""
     from app.services import payment_service
 
+    _require_overview(actor)
     return [
         (
             format_datetime_br(item.data),
@@ -369,23 +409,29 @@ def reversals_rows(inicio: date, fim: date) -> list[tuple[object, ...]]:
             item.motivo,
             item.usuario,
         )
-        for item in payment_service.list_reversals(inicio, fim)
+        for item in payment_service.list_reversals(actor, inicio, fim)
     ]
 
 
-def total_reversed(inicio: date, fim: date) -> Decimal:
+def total_reversed(actor: SessionUser, inicio: date, fim: date) -> Decimal:
     """Valor total estornado no período — indicador de conferência do caixa."""
+    _require_overview(actor)
     with session_scope() as session:
         return from_cents(ReversalRepository(session).total_period(inicio, fim))
 
 
-def export_reversals(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Path:
-    return export(fmt, path, REVERSALS_HEADERS, reversals_rows(inicio, fim))
+def export_reversals(
+    actor: SessionUser, path: Path, inicio: date, fim: date, fmt: str = "csv"
+) -> Path:
+    return export(fmt, path, REVERSALS_HEADERS, reversals_rows(actor, inicio, fim))
 
 
-def export_payments(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Path:
+def export_payments(
+    actor: SessionUser, path: Path, inicio: date, fim: date, fmt: str = "csv"
+) -> Path:
     from app.services import payment_service
 
+    _require_overview(actor)
     rows = [
         (
             format_br(item.data),
@@ -397,6 +443,6 @@ def export_payments(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Pa
             item.codigo,
             item.usuario,
         )
-        for item in payment_service.list_payments(inicio, fim)
+        for item in payment_service.list_payments(inicio, fim, actor=actor)
     ]
     return export(fmt, path, PAYMENTS_HEADERS, rows)

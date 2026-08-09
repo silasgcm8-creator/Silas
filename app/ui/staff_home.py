@@ -1,8 +1,9 @@
 """Terminal operacional do funcionário: poucas ações, botões grandes.
 
-O funcionário não precisa enxergar a complexidade administrativa. Esta tela
-oferece as quatro ações do balcão em botões grandes, com atalhos de teclado, e
-mostra apenas o que ajuda o atendimento.
+A tela oferece as ações do balcão e **nada mais**. Nenhum valor consolidado,
+nenhum indicador, nenhum totalizador — nem zerado. O funcionário trabalha com o
+cliente à sua frente; a situação financeira da loja não é assunto dele, e o
+componente que a mostraria simplesmente não existe aqui.
 """
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
@@ -19,13 +19,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.security.permissions import Permission
-from app.services import payment_service, report_service
 from app.ui import icons
 from app.ui.context import AppContext
-from app.ui.theme import ACCENT, TEXT_MUTED
-from app.ui.widgets import Card, empty_hint
-from app.utils.dates import today as _hoje
-from app.utils.money import format_brl
+from app.ui.widgets import empty_hint
 
 #: Rótulo, ícone, atalho e permissão de cada ação do balcão.
 ACTIONS = (
@@ -93,56 +89,11 @@ class StaffHomePage(QWidget):
             grid.addWidget(botao, posicao // 2, posicao % 2)
         layout.addLayout(grid)
 
-        self.resumo = Card()
-        titulo_resumo = QLabel("ATENDIMENTO DE HOJE")
-        titulo_resumo.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 11px; letter-spacing: 0.08em; font-weight: 600;"
-        )
-        self.resumo.body.addWidget(titulo_resumo)
-        self.resumo_linha = QHBoxLayout()
-        self.resumo_linha.setSpacing(28)
-        self.resumo.body.addLayout(self.resumo_linha)
-        layout.addWidget(self.resumo)
-
         self.aviso = empty_hint(
             "Precisa de algo além destas ações? Fale com o administrador."
         )
         layout.addWidget(self.aviso)
         layout.addStretch(1)
 
-        self.refresh()
-
-    def _metric(self, rotulo: str, valor: str) -> QWidget:
-        caixa = QWidget()
-        coluna = QVBoxLayout(caixa)
-        coluna.setContentsMargins(0, 0, 0, 0)
-        coluna.setSpacing(2)
-        titulo = QLabel(rotulo.upper())
-        titulo.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 11px; letter-spacing: 0.06em;"
-        )
-        numero = QLabel(valor)
-        numero.setStyleSheet(f"color: {ACCENT}; font-size: 20px; font-weight: 700;")
-        coluna.addWidget(titulo)
-        coluna.addWidget(numero)
-        return caixa
-
     def refresh(self) -> None:
-        """Só indicadores do próprio atendimento — nada administrativo."""
-        while self.resumo_linha.count():
-            item = self.resumo_linha.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        painel = report_service.dashboard()
-        self.resumo_linha.addWidget(
-            self._metric("Recebido hoje", format_brl(painel.recebido_hoje))
-        )
-        self.resumo_linha.addWidget(
-            self._metric("Pagamentos hoje", str(len(payment_service.list_payments(_hoje(), _hoje()))))
-        )
-        self.resumo_linha.addWidget(
-            self._metric("Parcelas vencendo hoje", str(painel.parcelas_vencendo_hoje))
-        )
-        self.resumo_linha.addStretch(1)
+        """Nada a atualizar: a tela não exibe dado nenhum, só ações."""

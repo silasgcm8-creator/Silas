@@ -350,7 +350,7 @@ def test_recebimento_guarda_a_forma_de_pagamento(admin, parcelas):
     )
 
     hoje = date.today()
-    recebimentos = payment_service.list_payments(hoje, hoje)
+    recebimentos = payment_service.list_payments(hoje, hoje, actor=admin)
     assert recebimentos[0].forma == "PIX"
     assert recebimentos[0].documento_id == documento
 

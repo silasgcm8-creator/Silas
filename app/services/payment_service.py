@@ -223,8 +223,9 @@ def reverse_payment(
         return reversal.id
 
 
-def list_reversals(start: date, end: date) -> list[ReversalRow]:
+def list_reversals(actor: SessionUser, start: date, end: date) -> list[ReversalRow]:
     """Estornos do período, para a auditoria e o relatório de estornos."""
+    require(actor.role, Permission.FINANCE_OVERVIEW)
     with session_scope() as session:
         return [
             ReversalRow(
@@ -243,9 +244,20 @@ def list_reversals(start: date, end: date) -> list[ReversalRow]:
         ]
 
 
-def list_payments(start: date, end: date, term: str = "") -> list[PaymentRow]:
+def list_payments(
+    start: date, end: date, term: str = "", *, actor: SessionUser
+) -> list[PaymentRow]:
+    """Recebimentos do período, no limite do que o solicitante pode ver.
+
+    Administrador vê o caixa inteiro. O funcionário vê **apenas os recebimentos
+    que ele mesmo registrou** — o suficiente para conferir a própria operação e
+    reimprimir um comprovante, sem revelar o movimento financeiro da loja.
+    """
+    escopo = None if actor.can(Permission.FINANCE_OVERVIEW) else actor.id
     with session_scope() as session:
-        rows = PaymentRepository(session).list_period(start, end, term)
+        rows = PaymentRepository(session).list_period(
+            start, end, term, usuario_id=escopo
+        )
         return [
             PaymentRow(
                 id=row.id,
@@ -265,6 +277,8 @@ def list_payments(start: date, end: date, term: str = "") -> list[PaymentRow]:
         ]
 
 
-def total_received(start: date, end: date) -> Decimal:
+def total_received(start: date, end: date, *, actor: SessionUser) -> Decimal:
+    """Total recebido pela loja no período — número consolidado, só do dono."""
+    require(actor.role, Permission.FINANCE_OVERVIEW)
     with session_scope() as session:
         return from_cents(PaymentRepository(session).total_period(start, end))
