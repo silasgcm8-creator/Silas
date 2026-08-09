@@ -132,3 +132,29 @@ def test_estorno_duas_vezes_e_bloqueado(admin, paga):
     payment_service.reverse_payment(parcela_id, "Primeiro estorno", admin)
     with pytest.raises(BusinessError):
         payment_service.reverse_payment(parcela_id, "Segundo estorno", admin)
+
+
+def test_relatorio_de_estornos_e_exportacao(admin, paga, tmp_path):
+    """Conferência de caixa: total estornado e arquivo exportado."""
+    parcela_id, _ = paga
+    payment_service.reverse_payment(parcela_id, "Cobrança em duplicidade", admin)
+
+    hoje = date.today()
+    assert report_service.total_reversed(hoje, hoje) == Decimal("200.00")
+
+    linhas = report_service.reversals_rows(hoje, hoje)
+    assert len(linhas) == 1
+    assert "Cobrança em duplicidade" in linhas[0]
+
+    destino = tmp_path / "estornos.csv"
+    report_service.export_reversals(destino, hoje, hoje, "csv")
+    conteudo = destino.read_text(encoding="utf-8-sig")
+    assert "Motivo" in conteudo
+    assert "Cobrança em duplicidade" in conteudo
+    assert "Proprietário SYS" in conteudo
+
+
+def test_periodo_sem_estorno_fica_zerado(admin, paga):
+    hoje = date.today()
+    assert report_service.total_reversed(hoje, hoje) == Decimal("0.00")
+    assert report_service.reversals_rows(hoje, hoje) == []

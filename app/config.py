@@ -21,7 +21,8 @@ DB_SIGNATURE = "SYS_CREDIARIO"
 #: 2 — índice único de recebimento por parcela (impede pagamento em duplicidade).
 #: 3 — estorno auditado: código da operação, exclusão lógica do recebimento e
 #:     índice único parcial, para a parcela poder ser paga de novo após estorno.
-SCHEMA_VERSION = 3
+#: 4 — exclusão lógica de cliente (excluido_em / por / motivo).
+SCHEMA_VERSION = 4
 
 
 def base_dir() -> Path:

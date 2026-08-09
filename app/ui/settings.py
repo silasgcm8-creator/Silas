@@ -4,25 +4,27 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from app.api.server import api_server
-from app.config import APP_NAME, APP_VERSION
+from app.config import APP_NAME, APP_VERSION, settings
 from app.models.status import Role
 from app.security.password import algorithm
 from app.security.permissions import Permission, PermissionDenied
-from app.services import log_service, user_service
+from app.services import backup_service, log_service, user_service
 from app.services.errors import BusinessError, ValidationError
 from app.ui.context import AppContext
 from app.ui.theme import GREEN, RED, TEXT_MUTED
@@ -159,6 +161,7 @@ class SettingsPage(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._users_tab(), "Usuários")
+        self.tabs.addTab(self._backup_tab(), "Backup automático")
         self.tabs.addTab(self._mobile_tab(), "Acesso pelo celular")
         self.tabs.addTab(self._logs_tab(), "Log de atividades")
         self.tabs.addTab(self._about_tab(), "Sobre")
@@ -166,7 +169,119 @@ class SettingsPage(QWidget):
 
         admin = ctx.can(Permission.USER_MANAGE)
         self.tabs.setTabEnabled(0, admin)
-        self.tabs.setTabEnabled(2, ctx.can(Permission.LOG_VIEW))
+        self.tabs.setTabEnabled(1, ctx.can(Permission.SETTINGS))
+        self.tabs.setTabEnabled(3, ctx.can(Permission.LOG_VIEW))
+
+    # ----- backup automático ----------------------------------------
+    def _backup_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(12)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+
+        self.auto_enabled = QCheckBox("Criar backup automaticamente")
+        form.addRow(field_label("BACKUP AUTOMÁTICO"), self.auto_enabled)
+
+        self.auto_hours = QSpinBox()
+        self.auto_hours.setRange(1, 720)
+        self.auto_hours.setSuffix(" hora(s)")
+        self.auto_hours.setMinimumHeight(38)
+        form.addRow(field_label("A CADA"), self.auto_hours)
+
+        self.auto_keep = QSpinBox()
+        self.auto_keep.setRange(1, 365)
+        self.auto_keep.setSuffix(" cópia(s)")
+        self.auto_keep.setMinimumHeight(38)
+        form.addRow(field_label("MANTER AS ÚLTIMAS"), self.auto_keep)
+
+        pasta_linha = QHBoxLayout()
+        self.auto_folder = QLineEdit()
+        self.auto_folder.setMinimumHeight(38)
+        self.auto_folder.setPlaceholderText("Pasta padrão do sistema")
+        escolher = button("Escolher pasta", "list")
+        escolher.clicked.connect(self._choose_backup_folder)
+        pasta_linha.addWidget(self.auto_folder, 1)
+        pasta_linha.addWidget(escolher)
+        form.addRow(field_label("PASTA"), pasta_linha)
+        layout.addLayout(form)
+
+        acoes = QHBoxLayout()
+        salvar = primary_button("Salvar configuração", "check")
+        salvar.clicked.connect(self._save_backup_config)
+        agora = button("Criar backup automático agora", "download")
+        agora.clicked.connect(self._run_backup_now)
+        acoes.addWidget(salvar)
+        acoes.addWidget(agora)
+        acoes.addStretch(1)
+        layout.addLayout(acoes)
+
+        self.auto_status = QLabel("")
+        self.auto_status.setObjectName("Muted")
+        self.auto_status.setWordWrap(True)
+        layout.addWidget(self.auto_status)
+        layout.addStretch(1)
+
+        self._load_backup_config()
+        return page
+
+    def _load_backup_config(self) -> None:
+        config = backup_service.auto_config()
+        self.auto_enabled.setChecked(config.enabled)
+        self.auto_hours.setValue(config.interval_hours)
+        self.auto_keep.setValue(config.keep)
+        if config.folder != settings.backup_dir:
+            self.auto_folder.setText(str(config.folder))
+        quando = (
+            format_datetime_br(config.last_run) if config.last_run else "ainda não rodou"
+        )
+        self.auto_status.setText(
+            f"Último backup automático: {quando}. Pasta em uso: {config.folder}. "
+            "A cópia é feita quando o programa abre, se já passou do intervalo. "
+            "Backups manuais e as cópias feitas antes de uma restauração nunca "
+            "são apagados pela limpeza automática."
+        )
+
+    def _choose_backup_folder(self) -> None:
+        atual = self.auto_folder.text().strip() or str(settings.backup_dir)
+        escolhida = QFileDialog.getExistingDirectory(
+            self, "Pasta dos backups automáticos", atual
+        )
+        if escolhida:
+            self.auto_folder.setText(escolhida)
+
+    def _save_backup_config(self) -> None:
+        try:
+            backup_service.save_auto_config(
+                enabled=self.auto_enabled.isChecked(),
+                interval_hours=self.auto_hours.value(),
+                folder=self.auto_folder.text().strip() or None,
+                keep=self.auto_keep.value(),
+                actor=self.ctx.user,
+            )
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Backup automático", str(exc))
+            return
+        self._load_backup_config()
+        self.ctx.notify("Configuração de backup salva.")
+
+    def _run_backup_now(self) -> None:
+        try:
+            caminho = backup_service.auto_backup_if_due(force=True)
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Backup automático", str(exc))
+            return
+        if caminho is None:
+            warn(
+                self,
+                "Backup automático",
+                "Não foi possível gravar o backup. Confira se a pasta escolhida "
+                "está acessível — o detalhe técnico foi gravado no log.",
+            )
+            return
+        self._load_backup_config()
+        info(self, "Backup criado", f"Arquivo gerado:\n{caminho}")
 
     # ----- usuários -------------------------------------------------
     def _users_tab(self) -> QWidget:

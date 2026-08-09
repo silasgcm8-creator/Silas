@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import require_permission
 from app.api.schemas import ClientOut, ClientSummaryOut
@@ -17,9 +17,26 @@ router = APIRouter(prefix="/clientes", tags=["Clientes"])
 @router.get("", response_model=list[ClientOut])
 def list_clients(
     busca: str = "",
+    pagina: int = Query(1, ge=1, description="Página, começando em 1"),
+    por_pagina: int = Query(
+        client_service.PAGE_SIZE, ge=1, le=500, description="Itens por página"
+    ),
     _: SessionUser = Depends(require_permission(Permission.CLIENT_VIEW)),
 ) -> list[ClientOut]:
-    return [ClientOut(**row.__dict__) for row in client_service.list_clients(busca)]
+    """Clientes ativos. O celular pagina para não baixar a base inteira."""
+    rows = client_service.list_clients(
+        busca, limit=por_pagina, offset=(pagina - 1) * por_pagina
+    )
+    return [ClientOut(**row.__dict__) for row in rows]
+
+
+@router.get("/contagem/total", response_model=int)
+def count_clients(
+    busca: str = "",
+    _: SessionUser = Depends(require_permission(Permission.CLIENT_VIEW)),
+) -> int:
+    """Quantos clientes atendem à busca — permite montar a paginação no celular."""
+    return client_service.count_clients(busca)
 
 
 @router.get("/{client_id}", response_model=ClientSummaryOut)

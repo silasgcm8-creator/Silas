@@ -17,7 +17,8 @@ from app.models.installment import Installment
 from app.models.payment import Payment
 from app.repositories.installment_repository import InstallmentRepository
 from app.repositories.payment_repository import PaymentRepository
-from app.utils.dates import days_late, format_br, month_bounds
+from app.repositories.reversal_repository import ReversalRepository
+from app.utils.dates import days_late, format_br, format_datetime_br, month_bounds
 from app.utils.export import export
 from app.utils.money import ZERO, format_brl, from_cents
 
@@ -318,7 +319,28 @@ RECEIVABLES_HEADERS = (
     "Dias em atraso",
 )
 
-PAYMENTS_HEADERS = ("Data", "Cliente", "CPF", "Parcela", "Valor", "Crediário", "Usuário")
+PAYMENTS_HEADERS = (
+    "Data",
+    "Cliente",
+    "CPF",
+    "Parcela",
+    "Valor",
+    "Crediário",
+    "Identificador",
+    "Usuário",
+)
+
+REVERSALS_HEADERS = (
+    "Estornado em",
+    "Cliente",
+    "CPF",
+    "Parcela",
+    "Valor",
+    "Data do pagamento",
+    "Identificador",
+    "Motivo",
+    "Autorizado por",
+)
 
 SUMMARY_HEADERS = ("Indicador", "Valor")
 
@@ -329,6 +351,36 @@ def export_report(path: Path, data: ReportData, fmt: str = "csv") -> Path:
 
 def export_receivables(path: Path, fmt: str = "csv") -> Path:
     return export(fmt, path, RECEIVABLES_HEADERS, receivables_rows())
+
+
+def reversals_rows(inicio: date, fim: date) -> list[tuple[object, ...]]:
+    """Linhas do relatório de estornos, na ordem dos cabeçalhos."""
+    from app.services import payment_service
+
+    return [
+        (
+            format_datetime_br(item.data),
+            item.cliente,
+            item.cpf,
+            item.parcela,
+            format_brl(item.valor, symbol=False),
+            format_br(item.data_pagamento),
+            item.pagamento_codigo,
+            item.motivo,
+            item.usuario,
+        )
+        for item in payment_service.list_reversals(inicio, fim)
+    ]
+
+
+def total_reversed(inicio: date, fim: date) -> Decimal:
+    """Valor total estornado no período — indicador de conferência do caixa."""
+    with session_scope() as session:
+        return from_cents(ReversalRepository(session).total_period(inicio, fim))
+
+
+def export_reversals(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Path:
+    return export(fmt, path, REVERSALS_HEADERS, reversals_rows(inicio, fim))
 
 
 def export_payments(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Path:
@@ -342,6 +394,7 @@ def export_payments(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Pa
             item.parcela,
             format_brl(item.valor, symbol=False),
             item.crediario_id,
+            item.codigo,
             item.usuario,
         )
         for item in payment_service.list_payments(inicio, fim)

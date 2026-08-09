@@ -71,22 +71,34 @@ def _deduplicate_payments() -> None:
         )
 
 
+#: Colunas acrescentadas por versões novas, por tabela.
+NEW_COLUMNS: dict[str, dict[str, str]] = {
+    "pagamentos": {
+        "codigo": "VARCHAR(24) DEFAULT ''",
+        "estornado_em": "DATETIME",
+    },
+    "clientes": {
+        "excluido_em": "DATETIME",
+        "excluido_por": "VARCHAR(120)",
+        "motivo_exclusao": "VARCHAR(300)",
+    },
+}
+
+
 def _add_missing_columns() -> None:
     """Acrescenta colunas novas sem tocar nos dados já gravados."""
     engine = get_engine()
-    existing = {column["name"] for column in sa.inspect(engine).get_columns("pagamentos")}
-    novas = {
-        "codigo": "VARCHAR(24) DEFAULT ''",
-        "estornado_em": "DATETIME",
-    }
-    for nome, definicao in novas.items():
-        if nome in existing:
-            continue
-        with engine.begin() as connection:
-            connection.execute(
-                sa.text(f"ALTER TABLE pagamentos ADD COLUMN {nome} {definicao}")
-            )
-        LOGGER.info("Migração: coluna pagamentos.%s criada.", nome)
+    inspector = sa.inspect(engine)
+    for tabela, novas in NEW_COLUMNS.items():
+        existing = {column["name"] for column in inspector.get_columns(tabela)}
+        for nome, definicao in novas.items():
+            if nome in existing:
+                continue
+            with engine.begin() as connection:
+                connection.execute(
+                    sa.text(f"ALTER TABLE {tabela} ADD COLUMN {nome} {definicao}")
+                )
+            LOGGER.info("Migração: coluna %s.%s criada.", tabela, nome)
 
 
 def _backfill_payment_codes() -> None:

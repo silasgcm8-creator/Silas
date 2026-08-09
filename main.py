@@ -65,6 +65,16 @@ def main() -> int:
         print(f"Erro ao preparar o banco de dados: {exc}", file=sys.stderr)
         return 1
 
+    # Backup automático na abertura. Falha aqui não impede o uso do sistema:
+    # o serviço já trata destino indisponível e apenas registra no log.
+    try:
+        from app.services.backup_service import auto_backup_if_due
+
+        if auto_backup_if_due() is not None:
+            logger.info("Backup automático concluído na inicialização.")
+    except Exception:  # noqa: BLE001 - backup nunca derruba o programa
+        logger.exception("Backup automático falhou na inicialização")
+
     from PySide6.QtWidgets import QApplication, QDialog
 
     from app.ui import icons

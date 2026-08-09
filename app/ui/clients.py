@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QVBoxLayout,
@@ -27,6 +28,7 @@ from app.ui.widgets import (
     SearchBox,
     SectionTitle,
     button,
+    danger_button,
     date_item,
     error,
     field_label,
@@ -39,6 +41,7 @@ from app.ui.widgets import (
     warn,
 )
 from app.utils.cpf import format_cpf
+from app.utils.dates import format_datetime_br
 from app.utils.money import ZERO, format_brl
 from app.utils.validators import format_phone
 
@@ -293,11 +296,90 @@ class ClientDetailDialog(QDialog):
         )
 
 
+class DeletedClientsDialog(QDialog):
+    """Cadastros excluídos logicamente, com opção de reativar."""
+
+    def __init__(self, ctx: AppContext, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.ctx = ctx
+        self.setWindowTitle("Cadastros excluídos")
+        self.setMinimumSize(820, 460)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(14)
+        layout.addWidget(
+            page_header(
+                "Cadastros excluídos",
+                "A exclusão é lógica: nada foi apagado do banco",
+            )
+        )
+
+        self.table = DataTable(
+            ["Nome", "CPF", "Telefone", "Excluído em", "Por", "Motivo"],
+            stretch=5,
+            sortable=False,
+        )
+        layout.addWidget(self.table, 1)
+
+        actions = QHBoxLayout()
+        restore = primary_button("Reativar cadastro", "undo")
+        restore.clicked.connect(self._restore)
+        close = button("Fechar", ghost=True)
+        close.clicked.connect(self.accept)
+        actions.addWidget(restore)
+        actions.addStretch(1)
+        actions.addWidget(close)
+        layout.addLayout(actions)
+
+        self.hint = QLabel("")
+        self.hint.setObjectName("Muted")
+        layout.addWidget(self.hint)
+
+        self.refresh()
+
+    def refresh(self) -> None:
+        rows = client_service.list_deleted(self.ctx.user)
+        self.table.fill(
+            [
+                [
+                    text_item(row.nome, key=row.id),
+                    text_item(row.cpf),
+                    text_item(row.telefone),
+                    text_item(format_datetime_br(row.excluido_em)),
+                    text_item(row.excluido_por),
+                    text_item(row.motivo),
+                ]
+                for row in rows
+            ]
+        )
+        self.hint.setText(
+            "Nenhum cadastro excluído."
+            if not rows
+            else f"{len(rows)} cadastro(s) excluído(s). Reativar devolve o cliente "
+            "às listas com todo o histórico."
+        )
+
+    def _restore(self) -> None:
+        client_id = self.table.selected_key()
+        if client_id is None:
+            warn(self, "Reativar", "Selecione um cadastro na lista.")
+            return
+        try:
+            client_service.restore_client(client_id, self.ctx.user)
+        except (BusinessError, NotFoundError, PermissionDenied) as exc:
+            warn(self, "Reativar", str(exc))
+            return
+        self.ctx.notify("Cadastro reativado.")
+        self.refresh()
+
+
 class ClientsPage(QWidget):
     def __init__(self, ctx: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.ctx = ctx
         self._term = ""
+        self._page = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -316,6 +398,16 @@ class ClientsPage(QWidget):
         new_button.clicked.connect(self.new_client)
         new_button.setEnabled(ctx.can(Permission.CLIENT_CREATE))
         bar.addWidget(new_button)
+
+        # Exclusão só para administrador, e é lógica: nada sai do banco.
+        if ctx.can(Permission.CLIENT_DELETE):
+            delete_button = danger_button("Excluir cadastro", "logout")
+            delete_button.clicked.connect(self._delete_selected)
+            bar.addWidget(delete_button)
+
+            deleted_button = button("Cadastros excluídos", "list", ghost=True)
+            deleted_button.clicked.connect(self._show_deleted)
+            bar.addWidget(deleted_button)
         layout.addLayout(bar)
 
         self.table = DataTable(
@@ -333,16 +425,39 @@ class ClientsPage(QWidget):
         self.table.doubleClicked.connect(lambda *_: self._open_selected())
         layout.addWidget(self.table, 1)
 
+        rodape = QHBoxLayout()
         self.total_label = QLabel("")
         self.total_label.setObjectName("Muted")
-        layout.addWidget(self.total_label)
+        rodape.addWidget(self.total_label, 1)
+
+        self.prev_button = button("Anterior", "undo", ghost=True)
+        self.prev_button.clicked.connect(lambda *_: self._change_page(-1))
+        self.next_button = button("Próxima", "list", ghost=True)
+        self.next_button.clicked.connect(lambda *_: self._change_page(1))
+        self.page_label = QLabel("")
+        self.page_label.setObjectName("Muted")
+        rodape.addWidget(self.prev_button)
+        rodape.addWidget(self.page_label)
+        rodape.addWidget(self.next_button)
+        layout.addLayout(rodape)
 
     def _on_search(self, term: str) -> None:
         self._term = term
+        self._page = 0  # nova busca sempre começa na primeira página
+        self.refresh()
+
+    def _change_page(self, delta: int) -> None:
+        self._page = max(0, self._page + delta)
         self.refresh()
 
     def refresh(self) -> None:
-        rows = client_service.list_clients(self._term)
+        total = client_service.count_clients(self._term)
+        tamanho = client_service.PAGE_SIZE
+        ultima = max(0, (total - 1) // tamanho) if total else 0
+        self._page = min(self._page, ultima)
+        rows = client_service.list_clients(
+            self._term, limit=tamanho, offset=self._page * tamanho
+        )
         self.table.fill(
             [
                 [
@@ -359,12 +474,18 @@ class ClientsPage(QWidget):
         for index, row in enumerate(rows):
             self.table.setCellWidget(index, 5, self._actions(row.id, row.nome, row.telefone))
         self.table.setColumnWidth(5, 140)
-        saldo = sum((row.saldo for row in rows), ZERO)
-        vencido = sum((row.vencido for row in rows), ZERO)
+        # Totais somados no banco, sobre toda a busca — não apenas a página.
+        saldo, vencido = client_service.search_totals(self._term)
+        primeiro = self._page * tamanho + 1 if rows else 0
+        ultimo = self._page * tamanho + len(rows)
+        faixa = f"{primeiro}–{ultimo} de {total}" if total else "nenhum cliente"
         self.total_label.setText(
-            f"{len(rows)} clientes   •   saldo {format_brl(saldo)}   •   "
+            f"Mostrando {faixa}   •   saldo {format_brl(saldo)}   •   "
             f"vencido {format_brl(vencido)}"
         )
+        self.page_label.setText(f"Página {self._page + 1} de {ultima + 1}")
+        self.prev_button.setEnabled(self._page > 0)
+        self.next_button.setEnabled(self._page < ultima)
 
     def _actions(self, client_id: int, nome: str, telefone: str) -> QWidget:
         holder = QWidget()
@@ -418,6 +539,49 @@ class ClientsPage(QWidget):
         dialog = ClientDialog(self.ctx, client_id, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh()
+
+    def _delete_selected(self) -> None:
+        """Exclusão lógica com confirmação do CPF e motivo registrado."""
+        client_id = self.table.selected_key()
+        if client_id is None:
+            warn(self, "Excluir cadastro", "Selecione um cliente na lista.")
+            return
+        client = client_service.get_client(client_id)
+
+        if not client_service.can_delete(client_id):
+            warn(
+                self,
+                "Excluir cadastro",
+                f"{client.nome} possui histórico financeiro e não pode ser "
+                "excluído. O cadastro é mantido para preservar a auditoria.",
+            )
+            return
+
+        cpf, ok = QInputDialog.getText(
+            self,
+            "Excluir cadastro",
+            f"Esta ação retira {client.nome} das listas. O cadastro continua no\n"
+            "banco e pode ser reativado depois.\n\nPara confirmar, digite o CPF "
+            "do cliente:",
+        )
+        if not ok:
+            return
+        motivo, ok = QInputDialog.getText(
+            self, "Excluir cadastro", "Motivo da exclusão (opcional):"
+        )
+        if not ok:
+            return
+        try:
+            client_service.delete_client(client_id, self.ctx.user, cpf, motivo)
+        except (BusinessError, NotFoundError, PermissionDenied) as exc:
+            warn(self, "Excluir cadastro", str(exc))
+            return
+        self.ctx.notify("Cadastro excluído. Pode ser reativado em Cadastros excluídos.")
+        self.refresh()
+
+    def _show_deleted(self) -> None:
+        DeletedClientsDialog(self.ctx, self).exec()
+        self.refresh()
 
     def focus_search(self) -> None:
         """Deixa o cursor na pesquisa — é por onde todo atendimento começa."""

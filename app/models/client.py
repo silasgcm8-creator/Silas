@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -22,9 +23,21 @@ class Client(Base, TimestampMixin):
     cpf: Mapped[str] = mapped_column(sa.String(14), unique=True, index=True)
     telefone: Mapped[str] = mapped_column(sa.String(20), index=True)
 
+    #: Exclusão lógica: o cadastro sai das listas mas continua no banco, para
+    #: que nenhum vínculo histórico se perca e a ação seja reversível.
+    excluido_em: Mapped[datetime | None] = mapped_column(
+        sa.DateTime, nullable=True, index=True
+    )
+    excluido_por: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    motivo_exclusao: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
+
     credits: Mapped[list["Credit"]] = relationship(
         back_populates="client", cascade="all, delete-orphan", passive_deletes=False
     )
+
+    @property
+    def excluido(self) -> bool:
+        return self.excluido_em is not None
 
     @property
     def primeiro_nome(self) -> str:
