@@ -19,7 +19,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.services import client_service, credit_service, payment_service, report_service
+from app.services import (
+    client_service,
+    credit_service,
+    payment_service,
+    report_service,
+    slip_service,
+)
 from app.services.errors import BusinessError, NotFoundError, ValidationError
 from app.security.permissions import Permission, PermissionDenied
 from app.ui.context import AppContext
@@ -39,6 +45,7 @@ from app.ui.widgets import (
     field_label,
     info,
     money_item,
+    open_file,
     page_header,
     primary_button,
     status_item,
@@ -244,15 +251,23 @@ class CreditDetailDialog(QDialog):
         actions = QHBoxLayout()
         self.pay_button = primary_button("Marcar como pago", "check")
         self.pay_button.clicked.connect(self._mark_paid)
-        self.undo_button = danger_button("Desfazer pagamento", "undo")
+        self.undo_button = danger_button("Estornar pagamento", "undo")
         self.undo_button.clicked.connect(self._undo)
         whats = button("WhatsApp", "whatsapp")
         whats.clicked.connect(self._whatsapp)
         close = button("Fechar", ghost=True)
         close.clicked.connect(self.accept)
 
+        self.slip_button = button("Carnê / Pix", "receipt")
+        self.slip_button.setToolTip(
+            "Gera o demonstrativo do parcelamento com área de Pix e código de barras"
+        )
+        self.slip_button.clicked.connect(self._issue_slip)
+        self.slip_button.setEnabled(ctx.can(Permission.SLIP_ISSUE))
+
         actions.addWidget(self.pay_button)
         actions.addWidget(self.undo_button)
+        actions.addWidget(self.slip_button)
         actions.addWidget(whats)
         actions.addStretch(1)
         actions.addWidget(close)
@@ -261,7 +276,7 @@ class CreditDetailDialog(QDialog):
         self.pay_button.setEnabled(ctx.can(Permission.PAYMENT_REGISTER))
         self.undo_button.setEnabled(ctx.can(Permission.PAYMENT_UNDO))
         if not ctx.can(Permission.PAYMENT_UNDO):
-            self.undo_button.setToolTip("Somente o administrador pode desfazer pagamentos.")
+            self.undo_button.setToolTip("Somente o administrador pode estornar pagamentos.")
 
         self.refresh()
 
@@ -360,6 +375,31 @@ class CreditDetailDialog(QDialog):
             return
         self.ctx.notify("Pagamento estornado e registrado na auditoria.")
         self.refresh()
+
+    def _issue_slip(self) -> None:
+        """Emite o carnê do parcelamento e oferece abrir para impressão."""
+        try:
+            caminho, dados = slip_service.issue(
+                self.credit_id, actor=self.ctx.user
+            )
+        except (BusinessError, NotFoundError, PermissionDenied) as exc:
+            warn(self, "Carnê", str(exc))
+            return
+
+        self.ctx.notify(f"Carnê {dados.documento} gerado.")
+        aviso = (
+            ""
+            if dados.tem_pix
+            else "\n\nA área do Pix saiu em branco: cadastre a chave da empresa "
+            "em Configurações → Empresa e Pix."
+        )
+        if confirm(
+            self,
+            "Carnê gerado",
+            f"Arquivo salvo em:\n{caminho}{aviso}\n\nAbrir agora para conferir "
+            "e imprimir?",
+        ):
+            open_file(caminho)
 
     def _whatsapp(self) -> None:
         open_charge_whatsapp(

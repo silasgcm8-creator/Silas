@@ -7,7 +7,13 @@ import logging
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.config import APP_VERSION, DB_SIGNATURE, SCHEMA_VERSION, settings
+from app.config import (
+    APP_VERSION,
+    COMPANY_DEFAULT,
+    DB_SIGNATURE,
+    SCHEMA_VERSION,
+    settings,
+)
 from app.database.connection import get_engine, session_scope
 from app.models import Base  # noqa: F401  (importa todos os modelos)
 from app.models.payment import ACTIVE_PAYMENT_CONDITION, UNIQUE_PAYMENT_INDEX
@@ -39,7 +45,7 @@ def seed_defaults() -> None:
         _upsert(session, KEY_SCHEMA, str(SCHEMA_VERSION))
         _upsert(session, KEY_VERSION, APP_VERSION)
         if session.get(Setting, KEY_COMPANY) is None:
-            session.add(Setting(chave=KEY_COMPANY, valor="SYS"))
+            session.add(Setting(chave=KEY_COMPANY, valor=COMPANY_DEFAULT))
 
 
 def run_migrations() -> None:

@@ -15,7 +15,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from app.config import APP_NAME, APP_VERSION, settings
+from app.config import APP_NAME, APP_VERSION, COMPANY_DEFAULT, settings
 from app.database.connection import session_scope
 from app.database.migrations import KEY_COMPANY
 from app.models.log import LogAction
@@ -73,7 +73,7 @@ def mask_cpf(cpf: str) -> str:
 def _company_name() -> str:
     with session_scope() as session:
         row = session.get(Setting, KEY_COMPANY)
-        return (row.valor if row else "") or APP_NAME
+        return (row.valor if row else "") or COMPANY_DEFAULT
 
 
 def build_receipt(payment_id: int) -> ReceiptData:

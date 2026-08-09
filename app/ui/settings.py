@@ -24,7 +24,7 @@ from app.config import APP_NAME, APP_VERSION, settings
 from app.models.status import Role
 from app.security.password import algorithm
 from app.security.permissions import Permission, PermissionDenied
-from app.services import backup_service, log_service, user_service
+from app.services import backup_service, log_service, slip_service, user_service
 from app.services.errors import BusinessError, ValidationError
 from app.ui.context import AppContext
 from app.ui.theme import GREEN, RED, TEXT_MUTED
@@ -161,6 +161,7 @@ class SettingsPage(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._users_tab(), "Usuários")
+        self.tabs.addTab(self._company_tab(), "Empresa e Pix")
         self.tabs.addTab(self._backup_tab(), "Backup automático")
         self.tabs.addTab(self._mobile_tab(), "Acesso pelo celular")
         self.tabs.addTab(self._logs_tab(), "Log de atividades")
@@ -170,7 +171,80 @@ class SettingsPage(QWidget):
         admin = ctx.can(Permission.USER_MANAGE)
         self.tabs.setTabEnabled(0, admin)
         self.tabs.setTabEnabled(1, ctx.can(Permission.SETTINGS))
-        self.tabs.setTabEnabled(3, ctx.can(Permission.LOG_VIEW))
+        self.tabs.setTabEnabled(2, ctx.can(Permission.SETTINGS))
+        self.tabs.setTabEnabled(4, ctx.can(Permission.LOG_VIEW))
+
+    # ----- empresa e Pix ---------------------------------------------
+    def _company_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(12)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+
+        self.company_name = QLineEdit()
+        self.company_name.setMinimumHeight(38)
+        self.company_name.setPlaceholderText("Nome que aparece nos comprovantes e carnês")
+        form.addRow(field_label("NOME DA EMPRESA"), self.company_name)
+
+        self.pix_key = QLineEdit()
+        self.pix_key.setMinimumHeight(38)
+        self.pix_key.setPlaceholderText("CPF/CNPJ, e-mail, telefone ou chave aleatória")
+        form.addRow(field_label("CHAVE PIX"), self.pix_key)
+
+        self.pix_city = QLineEdit()
+        self.pix_city.setMinimumHeight(38)
+        self.pix_city.setPlaceholderText("Cidade da empresa")
+        form.addRow(field_label("CIDADE"), self.pix_city)
+        layout.addLayout(form)
+
+        salvar = primary_button("Salvar dados da empresa", "check")
+        salvar.clicked.connect(self._save_company)
+        linha = QHBoxLayout()
+        linha.addWidget(salvar)
+        linha.addStretch(1)
+        layout.addLayout(linha)
+
+        self.company_hint = QLabel("")
+        self.company_hint.setObjectName("Muted")
+        self.company_hint.setWordWrap(True)
+        layout.addWidget(self.company_hint)
+        layout.addStretch(1)
+
+        self._load_company()
+        return page
+
+    def _load_company(self) -> None:
+        nome, chave, cidade = slip_service.company_settings()
+        self.company_name.setText(nome)
+        self.pix_key.setText(chave)
+        self.pix_city.setText(cidade)
+        if chave:
+            self.company_hint.setText(
+                "Com a chave cadastrada, o carnê de pagamento sai com QR Code e "
+                "copia e cola do Pix da empresa. O valor levado é o saldo devedor "
+                "do crediário."
+            )
+        else:
+            self.company_hint.setText(
+                "Sem chave Pix, o carnê é emitido com a área do Pix reservada em "
+                "branco. O sistema nunca inventa dados bancários."
+            )
+
+    def _save_company(self) -> None:
+        try:
+            slip_service.save_company_settings(
+                self.company_name.text(),
+                self.pix_key.text(),
+                self.pix_city.text(),
+                self.ctx.user,
+            )
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Empresa e Pix", str(exc))
+            return
+        self._load_company()
+        self.ctx.notify("Dados da empresa salvos.")
 
     # ----- backup automático ----------------------------------------
     def _backup_tab(self) -> QWidget:

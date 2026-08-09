@@ -9,6 +9,8 @@ não depende de navegador.
 - Situação da parcela calculada sozinha: **PAGO**, **EM ABERTO**, **ATRASADO**
 - Registro de pagamento com identificador da operação
 - **Comprovante de pagamento em PDF** (A4 ou compacto), pronto para imprimir
+- **Carnê de pagamento** com todas as parcelas, QR Code Pix da empresa e área
+  reservada para o código de barras do banco
 - Estorno auditado: o pagamento nunca é apagado, e o motivo fica registrado
 - Tela de atrasados, recebimentos, relatórios e backup
 - Verificação do banco de dados sem reparo automático
@@ -76,12 +78,14 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 | Criar crediário | ✔ | ✔ |
 | Registrar pagamento | ✔ | ✔ |
 | Emitir comprovante | ✔ | ✔ |
+| Emitir carnê / Pix | ✔ | ✔ |
 | Abrir WhatsApp | ✔ | ✔ |
 | Estornar pagamento | ✔ | — |
 | Excluir cliente | ✔ | — |
 | Ver atrasados e relatórios | ✔ | — |
 | Restaurar backup | ✔ | — |
 | Verificar banco de dados | ✔ | — |
+| Configurar empresa, Pix e backup | ✔ | — |
 | Gerenciar usuários e ver logs | ✔ | — |
 
 As regras são conferidas **nos serviços**, não apenas na interface: o funcionário
@@ -152,6 +156,35 @@ valor, data, hora, identificador da operação, funcionário responsável, a sit
 *PAGO* e espaço para assinatura da empresa. Os arquivos ficam em
 `SYS_Crediario\comprovantes\`.
 
+### Carnê de pagamento (parcelamento, Pix e código de barras)
+
+Na ficha do crediário, botão **Carnê / Pix**. O PDF em A4 traz:
+
+- cliente, CPF mascarado e telefone;
+- valor total, entrada, valor financiado e quantidade de parcelas;
+- **todas as parcelas** com número, vencimento, valor e situação
+  (PAGO / EM ABERTO / ATRASADO com os dias de atraso);
+- totais de pago, saldo devedor e valor vencido;
+- **área do Pix** e **área do código de barras**.
+
+O nome da empresa impresso nos documentos já vem como **VISÃO** e pode ser
+alterado em **CONFIGURAÇÕES → Empresa e Pix**.
+
+**Pix.** Cadastre a chave em **CONFIGURAÇÕES → Empresa e Pix**. Com ela, o carnê
+sai com o QR Code e o *copia e cola* gerados pelo próprio sistema, no padrão
+aberto do Banco Central, já com o saldo devedor. O dinheiro cai na conta da
+empresa. Sem chave cadastrada, a área fica reservada em branco — o sistema
+**nunca inventa dados bancários**.
+
+**Código de barras.** A área é reservada para a empresa colar a linha digitável
+emitida pelo banco dela. O sistema imprime nesse espaço apenas um código de
+barras **de controle interno** (o número do documento), para conferência no
+balcão.
+
+> Este carnê **não é um boleto bancário**: apenas um banco pode emitir um título
+> cobrável na rede bancária. O próprio documento diz isso no rodapé, para que
+> ninguém o confunda com uma cobrança registrada.
+
 ### Estorno
 
 Se o pagamento foi lançado por engano, o administrador usa **Estornar
@@ -188,7 +221,7 @@ Para colocar um ícone na Área de Trabalho, dê dois cliques em `criar_atalho.b
 C:\Users\SEU_USUARIO\SYS_Crediario\
 ├── data\sys_crediario.db     banco de dados
 ├── backups\                  backups gerados
-├── comprovantes\             comprovantes de pagamento em PDF
+├── comprovantes\             comprovantes e carnês em PDF
 └── logs\                     registro técnico (rotativo, até 5 arquivos de 2 MB)
 ```
 
@@ -207,6 +240,12 @@ Menu lateral → **BACKUP**
   SYS CREDIÁRIO, pede confirmação e **guarda automaticamente uma cópia dos dados
   atuais** antes de substituir. Backups de versões anteriores são migrados
   automaticamente depois de restaurados.
+- **Backup automático** — em **CONFIGURAÇÕES → Backup automático** você liga,
+  escolhe o intervalo em horas, a pasta (pen drive, nuvem, rede) e quantas
+  cópias manter. A cópia é feita quando o programa abre, se o intervalo venceu.
+  Pen drive removido não impede o sistema de abrir: o erro vai para o log.
+  A limpeza automática só apaga arquivos `_Auto_` — backup manual e cópia de
+  pré-restauração nunca são removidos.
 - **Verificar banco de dados** — roda a verificação de integridade e de vínculos
   do SQLite. É só diagnóstico: **nenhum reparo automático é tentado**, porque um
   reparo malfeito destrói dados. Se algo aparecer, o caminho seguro é restaurar o
@@ -268,7 +307,10 @@ recusa de dois recebimentos para a mesma parcela, a API do celular (token,
 permissão do funcionário e encerramento de sessão) e a migração de bancos
 criados por versões anteriores.
 
-E ainda: o estorno auditado (pagamento preservado, motivo obrigatório, saída do
+E ainda: o carnê com Pix (inclusive o CRC do padrão do Banco Central conferido
+contra o valor de verificação oficial), a exclusão lógica de cliente com
+reativação, o backup automático com retenção, a paginação de base grande,
+o estorno auditado (pagamento preservado, motivo obrigatório, saída do
 caixa e nova cobrança possível), o comprovante em PDF nos dois formatos com CPF
 mascarado, o RBAC provado **chamando os serviços direto** — como faria um script
 ou a API — e a interface por perfil (o funcionário não tem as telas
@@ -297,7 +339,8 @@ SYS_Crediario/
 │   ├── security/           senhas, sessão e permissões
 │   ├── ui/                 telas em PySide6
 │   ├── api/                servidor local FastAPI
-│   └── utils/              CPF, dinheiro, datas, validação, WhatsApp, exportação
+│   └── utils/              CPF, dinheiro, datas, validação, WhatsApp, Pix,
+│                           exportação
 ├── tests/                  testes automatizados
 └── site/                   páginas do site do autor (não faz parte do programa)
 ```
