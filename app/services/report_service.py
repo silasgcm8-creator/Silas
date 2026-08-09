@@ -14,9 +14,11 @@ from app.database.types import sum_cents
 from app.models.client import Client
 from app.models.credit import Credit
 from app.models.installment import Installment
+from app.models.payment import Payment
 from app.repositories.installment_repository import InstallmentRepository
 from app.repositories.payment_repository import PaymentRepository
-from app.utils.dates import days_late, format_br, month_bounds
+from app.repositories.reversal_repository import ReversalRepository
+from app.utils.dates import days_late, format_br, format_datetime_br, month_bounds
 from app.utils.export import export
 from app.utils.money import ZERO, format_brl, from_cents
 
@@ -25,11 +27,15 @@ from app.utils.money import ZERO, format_brl, from_cents
 class DashboardData:
     total_a_receber: Decimal
     total_vencido: Decimal
+    recebido_hoje: Decimal
     recebido_no_mes: Decimal
     clientes_em_atraso: int
     parcelas_vencendo_hoje: int
     valor_vencendo_hoje: Decimal
     parcelas_vencidas: int
+    parcelas_em_aberto: int
+    total_clientes: int
+    pagamentos_no_mes: int
 
 
 @dataclass(frozen=True)
@@ -110,16 +116,32 @@ def dashboard(reference: date | None = None) -> DashboardData:
             .where(Installment.pago.is_(False), Installment.vencimento < reference)
         )
         today_count, today_cents = InstallmentRepository(session).due_today_total(reference)
-        received = PaymentRepository(session).total_period(month_start, month_end)
+        payments = PaymentRepository(session)
+        received = payments.total_period(month_start, month_end)
+        received_today = payments.total_period(reference, reference)
+        open_count = session.scalar(
+            sa.select(sa.func.count(Installment.id)).where(Installment.pago.is_(False))
+        )
+        clients_count = session.scalar(sa.select(sa.func.count(Client.id)))
+        month_payments = session.scalar(
+            sa.select(sa.func.count(Payment.id)).where(
+                Payment.data_pagamento.between(month_start, month_end),
+                Payment.estornado_em.is_(None),
+            )
+        )
 
     return DashboardData(
         total_a_receber=from_cents(open_total or 0),
         total_vencido=from_cents(overdue_total or 0),
+        recebido_hoje=from_cents(received_today),
         recebido_no_mes=from_cents(received),
         clientes_em_atraso=int(late_clients or 0),
         parcelas_vencendo_hoje=today_count,
         valor_vencendo_hoje=from_cents(today_cents),
         parcelas_vencidas=int(overdue_count or 0),
+        parcelas_em_aberto=int(open_count or 0),
+        total_clientes=int(clients_count or 0),
+        pagamentos_no_mes=int(month_payments or 0),
     )
 
 
@@ -297,7 +319,28 @@ RECEIVABLES_HEADERS = (
     "Dias em atraso",
 )
 
-PAYMENTS_HEADERS = ("Data", "Cliente", "CPF", "Parcela", "Valor", "Crediário", "Usuário")
+PAYMENTS_HEADERS = (
+    "Data",
+    "Cliente",
+    "CPF",
+    "Parcela",
+    "Valor",
+    "Crediário",
+    "Identificador",
+    "Usuário",
+)
+
+REVERSALS_HEADERS = (
+    "Estornado em",
+    "Cliente",
+    "CPF",
+    "Parcela",
+    "Valor",
+    "Data do pagamento",
+    "Identificador",
+    "Motivo",
+    "Autorizado por",
+)
 
 SUMMARY_HEADERS = ("Indicador", "Valor")
 
@@ -308,6 +351,36 @@ def export_report(path: Path, data: ReportData, fmt: str = "csv") -> Path:
 
 def export_receivables(path: Path, fmt: str = "csv") -> Path:
     return export(fmt, path, RECEIVABLES_HEADERS, receivables_rows())
+
+
+def reversals_rows(inicio: date, fim: date) -> list[tuple[object, ...]]:
+    """Linhas do relatório de estornos, na ordem dos cabeçalhos."""
+    from app.services import payment_service
+
+    return [
+        (
+            format_datetime_br(item.data),
+            item.cliente,
+            item.cpf,
+            item.parcela,
+            format_brl(item.valor, symbol=False),
+            format_br(item.data_pagamento),
+            item.pagamento_codigo,
+            item.motivo,
+            item.usuario,
+        )
+        for item in payment_service.list_reversals(inicio, fim)
+    ]
+
+
+def total_reversed(inicio: date, fim: date) -> Decimal:
+    """Valor total estornado no período — indicador de conferência do caixa."""
+    with session_scope() as session:
+        return from_cents(ReversalRepository(session).total_period(inicio, fim))
+
+
+def export_reversals(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Path:
+    return export(fmt, path, REVERSALS_HEADERS, reversals_rows(inicio, fim))
 
 
 def export_payments(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Path:
@@ -321,6 +394,7 @@ def export_payments(path: Path, inicio: date, fim: date, fmt: str = "csv") -> Pa
             item.parcela,
             format_brl(item.valor, symbol=False),
             item.crediario_id,
+            item.codigo,
             item.usuario,
         )
         for item in payment_service.list_payments(inicio, fim)

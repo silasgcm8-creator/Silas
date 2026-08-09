@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import sqlalchemy as sa
@@ -18,10 +18,23 @@ from app.repositories.client_repository import ClientRepository
 from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
 from app.services import log_service
-from app.services.errors import DuplicateClientError, NotFoundError
+from app.services.errors import BusinessError, DuplicateClientError, NotFoundError
 from app.utils.cpf import only_digits
 from app.utils.money import from_cents
 from app.utils.validators import validate_cpf, validate_name, validate_phone
+
+
+@dataclass(frozen=True)
+class DeletedClientRow:
+    """Cadastro excluído logicamente, com a trilha de quem excluiu."""
+
+    id: int
+    nome: str
+    cpf: str
+    telefone: str
+    excluido_em: datetime | None
+    excluido_por: str
+    motivo: str
 
 
 @dataclass(frozen=True)
@@ -66,7 +79,16 @@ def create_client(
 
     with session_scope() as session:
         repo = ClientRepository(session)
-        if repo.get_by_cpf(cpf) is not None:
+        # A busca inclui os excluídos: o CPF é único no banco inteiro, então
+        # sem isso o cadastro repetido só falharia na restrição, com erro
+        # técnico na tela em vez de uma orientação clara.
+        existente = repo.get_by_cpf(cpf, include_deleted=True)
+        if existente is not None:
+            if existente.excluido:
+                raise DuplicateClientError(
+                    "Este CPF pertence a um cadastro excluído. Reative-o em "
+                    "Clientes → Cadastros excluídos, em vez de cadastrar de novo."
+                )
             raise DuplicateClientError(
                 "Este CPF já está cadastrado. Pesquise o cliente na tela Clientes."
             )
@@ -124,9 +146,21 @@ def find_by_cpf(cpf: str) -> Client | None:
         return client
 
 
-def list_clients(term: str = "", reference: date | None = None) -> list[ClientRow]:
+#: Tamanho da página das listagens. Segura o uso de memória e o tempo de
+#: desenho da tabela em bases grandes.
+PAGE_SIZE = 200
+
+
+def list_clients(
+    term: str = "",
+    reference: date | None = None,
+    limit: int = PAGE_SIZE,
+    offset: int = 0,
+) -> list[ClientRow]:
     with session_scope() as session:
-        rows = ClientRepository(session).list_with_balances(term, reference)
+        rows = ClientRepository(session).list_with_balances(
+            term, reference, limit=limit, offset=offset
+        )
         return [
             ClientRow(
                 id=row.id,
@@ -193,16 +227,21 @@ def can_delete(client_id: int) -> bool:
         return not ClientRepository(session).has_financial_history(client_id)
 
 
-def delete_client(client_id: int, actor: SessionUser, confirm_cpf: str) -> None:
-    """Exclusão administrativa: exige administrador e confirmação do CPF.
+def delete_client(
+    client_id: int, actor: SessionUser, confirm_cpf: str, motivo: str = ""
+) -> None:
+    """Exclusão **lógica**: exige administrador e confirmação do CPF.
 
-    Cliente com histórico financeiro nunca é excluído de forma simples.
+    O cadastro sai das listas mas continua no banco, com autor, data e motivo.
+    Nada é apagado de verdade, então a ação é reversível e auditável.
+
+    Cliente com histórico financeiro continua protegido: nem lógica nem física.
     """
     require(actor.role, Permission.CLIENT_DELETE)
     with session_scope() as session:
         repo = ClientRepository(session)
         client = repo.get(client_id)
-        if client is None:
+        if client is None or client.excluido:
             raise NotFoundError("Cliente não encontrado.")
         if repo.has_financial_history(client_id):
             raise DuplicateClientError(
@@ -211,16 +250,78 @@ def delete_client(client_id: int, actor: SessionUser, confirm_cpf: str) -> None:
             )
         if only_digits(confirm_cpf) != only_digits(client.cpf):
             raise NotFoundError("Confirmação incorreta: digite o CPF exato do cliente.")
+
+        motivo = " ".join((motivo or "").split())[:300]
+        client.excluido_em = datetime.now()
+        client.excluido_por = actor.nome
+        client.motivo_exclusao = motivo or None
+
         detalhes = f"{client.nome} — {client.cpf}"
-        repo.delete(client)
+        if motivo:
+            detalhes += f" — motivo: {motivo}"
         log_service.record(
             session, LogAction.CLIENT_DELETED, actor, detalhes=detalhes, cliente_id=client_id
         )
 
 
-def total_clients() -> int:
+def restore_client(client_id: int, actor: SessionUser) -> None:
+    """Desfaz uma exclusão lógica — o cadastro volta às listas."""
+    require(actor.role, Permission.CLIENT_DELETE)
     with session_scope() as session:
-        return ClientRepository(session).count()
+        client = ClientRepository(session).get(client_id)
+        if client is None:
+            raise NotFoundError("Cliente não encontrado.")
+        if not client.excluido:
+            raise BusinessError("Este cliente não está excluído.")
+        client.excluido_em = None
+        client.excluido_por = None
+        client.motivo_exclusao = None
+        log_service.record(
+            session,
+            LogAction.CLIENT_RESTORED,
+            actor,
+            detalhes=f"{client.nome} — {client.cpf}",
+            cliente_id=client_id,
+        )
+
+
+def list_deleted(actor: SessionUser) -> list[DeletedClientRow]:
+    """Cadastros excluídos, para o administrador conferir ou reativar."""
+    require(actor.role, Permission.CLIENT_DELETE)
+    with session_scope() as session:
+        return [
+            DeletedClientRow(
+                id=client.id,
+                nome=client.nome,
+                cpf=client.cpf,
+                telefone=client.telefone,
+                excluido_em=client.excluido_em,
+                excluido_por=client.excluido_por or "—",
+                motivo=client.motivo_exclusao or "—",
+            )
+            for client in ClientRepository(session).list_deleted()
+        ]
+
+
+def total_clients() -> int:
+    """Clientes ativos (excluídos logicamente não entram na contagem)."""
+    with session_scope() as session:
+        return ClientRepository(session).count_active()
+
+
+def count_clients(term: str = "") -> int:
+    """Quantos clientes atendem à busca, sem o limite da página."""
+    with session_scope() as session:
+        return ClientRepository(session).count_search(term)
+
+
+def search_totals(
+    term: str = "", reference: date | None = None
+) -> tuple[Decimal, Decimal]:
+    """Saldo e vencido de todos os clientes da busca (não só da página)."""
+    with session_scope() as session:
+        saldo, vencido = ClientRepository(session).totals_search(term, reference)
+        return from_cents(saldo), from_cents(vencido)
 
 
 def active_clients(reference: date | None = None) -> int:

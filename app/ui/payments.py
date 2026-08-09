@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from datetime import date
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
+    QInputDialog,
     QHBoxLayout,
     QLabel,
     QVBoxLayout,
@@ -14,7 +16,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import settings
-from app.services import payment_service, report_service
+from app.security.permissions import Permission, PermissionDenied
+from app.services import payment_service, receipt_service, report_service
+from app.services.errors import BusinessError, NotFoundError
 from app.ui.context import AppContext
 from app.ui.theme import GREEN
 from app.ui.widgets import (
@@ -23,12 +27,15 @@ from app.ui.widgets import (
     SearchBox,
     button,
     date_item,
+    confirm,
     error,
     field_label,
     info,
     money_item,
+    open_file,
     page_header,
     text_item,
+    warn,
 )
 from app.utils.dates import format_br, month_bounds, week_bounds
 from app.utils.money import ZERO, format_brl
@@ -74,16 +81,32 @@ class PaymentsPage(QWidget):
         self.search.search.connect(self._on_search)
         bar.addWidget(self.search, 1)
 
+        self.receipt_button = button("Comprovante", "receipt")
+        self.receipt_button.setToolTip("Emitir o comprovante do recebimento selecionado (Ctrl+P)")
+        self.receipt_button.setEnabled(ctx.can(Permission.RECEIPT_ISSUE))
+        self.receipt_button.clicked.connect(lambda *_: self.issue_receipt())
+        bar.addWidget(self.receipt_button)
+
         export_button = button("Exportar CSV", "download")
         export_button.clicked.connect(lambda *_: self._export())
         bar.addWidget(export_button)
         layout.addLayout(bar)
 
         self.table = DataTable(
-            ["Data", "Cliente", "CPF", "Parcela", "Valor", "Crediário", "Usuário"],
+            [
+                "Data",
+                "Cliente",
+                "CPF",
+                "Parcela",
+                "Valor",
+                "Crediário",
+                "Identificador",
+                "Usuário",
+            ],
             stretch=1,
             sortable=False,
         )
+        self.table.doubleClicked.connect(lambda *_: self.issue_receipt())
         layout.addWidget(self.table, 1)
 
         self.total_label = QLabel("")
@@ -137,6 +160,7 @@ class PaymentsPage(QWidget):
                     text_item(row.parcela),
                     money_item(row.valor, color=GREEN),
                     text_item(f"#{row.crediario_id}"),
+                    text_item(row.codigo),
                     text_item(row.usuario),
                 ]
                 for row in rows
@@ -145,6 +169,48 @@ class PaymentsPage(QWidget):
         total = sum((row.valor for row in rows), ZERO)
         self.total_label.setText(format_brl(total))
         self.total_label.setStyleSheet(f"color: {GREEN};")
+
+    def _selected_payment(self) -> int | None:
+        linha = self.table.currentRow()
+        if linha < 0:
+            warn(self, "Comprovante", "Selecione um recebimento na lista.")
+            return None
+        item = self.table.item(linha, 0)
+        return int(item.data(Qt.ItemDataRole.UserRole)) if item else None
+
+    def issue_receipt(self) -> None:
+        """Gera o comprovante em PDF e oferece a abertura para impressão."""
+        if not self.ctx.can(Permission.RECEIPT_ISSUE):
+            return
+        payment_id = self._selected_payment()
+        if payment_id is None:
+            return
+
+        layout_escolhido, confirmado = QInputDialog.getItem(
+            self,
+            "Comprovante de pagamento",
+            "Formato do comprovante:",
+            [receipt_service.A4, receipt_service.COMPACT],
+            0,
+            False,
+        )
+        if not confirmado:
+            return
+        try:
+            caminho, dados = receipt_service.issue(
+                payment_id, layout=layout_escolhido, actor=self.ctx.user
+            )
+        except (BusinessError, NotFoundError, PermissionDenied) as exc:
+            warn(self, "Comprovante", str(exc))
+            return
+
+        self.ctx.notify(f"Comprovante {dados.codigo} gerado.")
+        if confirm(
+            self,
+            "Comprovante gerado",
+            f"Arquivo salvo em:\n{caminho}\n\nAbrir agora para conferir e imprimir?",
+        ):
+            open_file(caminho)
 
     def _export(self) -> None:
         start, end = self.range()

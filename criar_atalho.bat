@@ -11,13 +11,32 @@ if not exist "%ALVO%" (
     exit /b 1
 )
 
-powershell -NoProfile -Command ^
-  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\SYS CREDIARIO.lnk');" ^
-  "$s.TargetPath='%ALVO%';" ^
-  "$s.WorkingDirectory='%cd%\dist';" ^
-  "$s.IconLocation='%ALVO%,0';" ^
-  "$s.Description='SYS CREDIARIO - controle de crediario';" ^
-  "$s.Save()"
+REM O script PowerShell vai para arquivo temporario: assim caminhos com
+REM espaco ou acento nao quebram a linha de comando.
+set "PS=%TEMP%\sys_crediario_atalho.ps1"
+> "%PS%" echo $alvo = '%ALVO%'
+>> "%PS%" echo $pasta = '%cd%\dist'
+>> "%PS%" echo $mesa = [Environment]::GetFolderPath('Desktop')
+>> "%PS%" echo $shell = New-Object -ComObject WScript.Shell
+>> "%PS%" echo $lnk = $shell.CreateShortcut((Join-Path $mesa 'SYS CREDIARIO.lnk'))
+>> "%PS%" echo $lnk.TargetPath = $alvo
+>> "%PS%" echo $lnk.WorkingDirectory = $pasta
+>> "%PS%" echo $lnk.IconLocation = "$alvo,0"
+>> "%PS%" echo $lnk.Description = 'SYS CREDIARIO - Otica Visao'
+>> "%PS%" echo $lnk.Save()
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS%"
+set "ERRO=%errorlevel%"
+del /q "%PS%" >nul 2>nul
+
+if not "%ERRO%"=="0" (
+    echo [ERRO] Nao foi possivel criar o atalho.
+    echo Voce pode criar manualmente: clique com o botao direito em
+    echo   %ALVO%
+    echo e escolha "Enviar para ^> Area de trabalho".
+    pause
+    exit /b 1
+)
 
 echo Atalho "SYS CREDIARIO" criado na Area de Trabalho.
 pause

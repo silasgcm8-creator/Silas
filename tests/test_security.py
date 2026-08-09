@@ -36,7 +36,7 @@ def test_funcionario_nao_desfaz_pagamento(admin):
     with pytest.raises(PermissionDenied):
         require(funcionario.role, Permission.BACKUP_RESTORE)
     with pytest.raises(PermissionDenied):
-        payment_service.undo_payment(1, funcionario)
+        payment_service.reverse_payment(1, "tentativa indevida", funcionario)
 
 
 def test_bloqueio_apos_seguidas_senhas_erradas(admin):

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import settings
-from app.services import report_service
+from app.services import payment_service, report_service
 from app.ui.context import AppContext
 from app.ui.theme import ACCENT, GREEN, PURPLE, RED, YELLOW
 from app.ui.widgets import (
@@ -32,7 +32,7 @@ from app.ui.widgets import (
     primary_button,
     text_item,
 )
-from app.utils.dates import format_br, month_bounds
+from app.utils.dates import format_br, format_datetime_br, month_bounds
 from app.utils.export import available_formats
 from app.utils.money import format_brl
 
@@ -75,6 +75,10 @@ class ReportsPage(QWidget):
         export_open = button("Exportar em aberto", "download")
         export_open.clicked.connect(lambda *_: self._export_receivables())
         bar.addWidget(export_open)
+
+        export_reversals = button("Exportar estornos", "download")
+        export_reversals.clicked.connect(lambda *_: self._export_reversals())
+        bar.addWidget(export_reversals)
         layout.addLayout(bar)
 
         cards = QGridLayout()
@@ -109,6 +113,36 @@ class ReportsPage(QWidget):
         )
         detail.body.addWidget(self.table)
         layout.addWidget(detail, 1)
+
+        # Estornos do período: conferência de caixa e trilha de auditoria.
+        reversals = Card()
+        cabecalho = QHBoxLayout()
+        cabecalho.addWidget(SectionTitle("Estornos do período"))
+        cabecalho.addStretch(1)
+        cabecalho.addWidget(field_label("TOTAL ESTORNADO"))
+        self.reversed_label = QLabel("—")
+        self.reversed_label.setObjectName("CardValue")
+        cabecalho.addWidget(self.reversed_label)
+        reversals.body.addLayout(cabecalho)
+
+        self.reversals_table = DataTable(
+            [
+                "Estornado em",
+                "Cliente",
+                "Parcela",
+                "Valor",
+                "Identificador",
+                "Motivo",
+                "Autorizado por",
+            ],
+            stretch=5,
+            sortable=False,
+        )
+        reversals.body.addWidget(self.reversals_table)
+        self.reversals_hint = QLabel("")
+        self.reversals_hint.setObjectName("Muted")
+        reversals.body.addWidget(self.reversals_hint)
+        layout.addWidget(reversals, 1)
 
         self.footer = QLabel("")
         self.footer.setObjectName("Muted")
@@ -145,6 +179,7 @@ class ReportsPage(QWidget):
                 for row in report_service.upcoming(limit=40)
             ]
         )
+        self._refresh_reversals(start, end)
         self.footer.setText(
             f"Período analisado: {format_br(start)} a {format_br(end)}."
         )
@@ -159,6 +194,45 @@ class ReportsPage(QWidget):
             self, "Salvar relatório", str(suggestion), f"Arquivo {fmt.upper()} (*.{fmt})"
         )
         return path
+
+    def _refresh_reversals(self, start, end) -> None:  # noqa: ANN001
+        estornos = payment_service.list_reversals(start, end)
+        self.reversals_table.fill(
+            [
+                [
+                    text_item(format_datetime_br(item.data), key=item.id),
+                    text_item(item.cliente),
+                    text_item(item.parcela),
+                    money_item(item.valor, color=RED),
+                    text_item(item.pagamento_codigo),
+                    text_item(item.motivo),
+                    text_item(item.usuario),
+                ]
+                for item in estornos
+            ]
+        )
+        total = report_service.total_reversed(start, end)
+        self.reversed_label.setText(format_brl(total))
+        self.reversed_label.setStyleSheet(f"color: {RED};")
+        self.reversals_hint.setText(
+            "Nenhum estorno no período."
+            if not estornos
+            else f"{len(estornos)} estorno(s). O pagamento original continua no "
+            "histórico, marcado como estornado."
+        )
+
+    def _export_reversals(self) -> None:
+        start, end = self.range()
+        fmt = self._fmt()
+        path = self._ask_path(f"Estornos_{start.isoformat()}_a_{end.isoformat()}")
+        if not path:
+            return
+        try:
+            report_service.export_reversals(path, start, end, fmt)
+        except Exception as exc:  # noqa: BLE001 - feedback direto ao usuário
+            error(self, "Exportação", f"Não foi possível exportar: {exc}")
+            return
+        info(self, "Exportação concluída", f"Arquivo gerado:\n{path}")
 
     def _export_summary(self) -> None:
         start, end = self.range()

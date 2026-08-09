@@ -88,6 +88,16 @@ def period_bounds(name: str, reference: date | None = None) -> tuple[date, date]
 
 
 def timestamp_tag(moment: datetime | None = None) -> str:
-    """Sufixo usado no nome dos backups: 2026-08-08_2030."""
+    """Sufixo usado no nome dos backups manuais: 2026-08-08_2030."""
     moment = moment or datetime.now()
     return moment.strftime("%Y-%m-%d_%H%M")
+
+
+def timestamp_tag_seconds(moment: datetime | None = None) -> str:
+    """Sufixo com segundos: 2026-08-08_203045.
+
+    Usado no backup automático, que pode rodar mais de uma vez no mesmo minuto
+    — sem os segundos, a segunda cópia sobrescreveria a primeira.
+    """
+    moment = moment or datetime.now()
+    return moment.strftime("%Y-%m-%d_%H%M%S")

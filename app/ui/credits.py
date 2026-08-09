@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QSpinBox,
@@ -18,9 +19,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.services import client_service, credit_service, payment_service, report_service
+from app.services import (
+    charge_service,
+    client_service,
+    credit_service,
+    payment_service,
+    report_service,
+    slip_service,
+)
 from app.services.errors import BusinessError, NotFoundError, ValidationError
 from app.security.permissions import Permission, PermissionDenied
+from app.ui.charge_dialogs import ChargeTypeDialog
 from app.ui.context import AppContext
 from app.ui.theme import ACCENT, GREEN, RED, TEXT_MUTED, YELLOW
 from app.ui.widgets import (
@@ -38,12 +47,14 @@ from app.ui.widgets import (
     field_label,
     info,
     money_item,
+    open_file,
     page_header,
     primary_button,
     status_item,
     text_item,
     warn,
 )
+from app.utils.dates import format_br
 from app.utils.money import ZERO, format_brl, parse_brl
 from app.utils.whatsapp import OFFLINE_MESSAGE, build_message, open_whatsapp
 
@@ -243,15 +254,31 @@ class CreditDetailDialog(QDialog):
         actions = QHBoxLayout()
         self.pay_button = primary_button("Marcar como pago", "check")
         self.pay_button.clicked.connect(self._mark_paid)
-        self.undo_button = danger_button("Desfazer pagamento", "undo")
+        self.undo_button = danger_button("Estornar pagamento", "undo")
         self.undo_button.clicked.connect(self._undo)
         whats = button("WhatsApp", "whatsapp")
         whats.clicked.connect(self._whatsapp)
         close = button("Fechar", ghost=True)
         close.clicked.connect(self.accept)
 
+        self.charge_button = button("Documento de cobrança", "receipt")
+        self.charge_button.setToolTip(
+            "Documento da parcela selecionada, para pagamento no caixa da loja"
+        )
+        self.charge_button.clicked.connect(self._issue_charge)
+        self.charge_button.setEnabled(ctx.can(Permission.CHARGE_ISSUE))
+
+        self.slip_button = button("Carnê / Pix", "receipt")
+        self.slip_button.setToolTip(
+            "Gera o demonstrativo do parcelamento com área de Pix e código de barras"
+        )
+        self.slip_button.clicked.connect(self._issue_slip)
+        self.slip_button.setEnabled(ctx.can(Permission.SLIP_ISSUE))
+
         actions.addWidget(self.pay_button)
         actions.addWidget(self.undo_button)
+        actions.addWidget(self.charge_button)
+        actions.addWidget(self.slip_button)
         actions.addWidget(whats)
         actions.addStretch(1)
         actions.addWidget(close)
@@ -260,7 +287,7 @@ class CreditDetailDialog(QDialog):
         self.pay_button.setEnabled(ctx.can(Permission.PAYMENT_REGISTER))
         self.undo_button.setEnabled(ctx.can(Permission.PAYMENT_UNDO))
         if not ctx.can(Permission.PAYMENT_UNDO):
-            self.undo_button.setToolTip("Somente o administrador pode desfazer pagamentos.")
+            self.undo_button.setToolTip("Somente o administrador pode estornar pagamentos.")
 
         self.refresh()
 
@@ -343,20 +370,109 @@ class CreditDetailDialog(QDialog):
         installment_id = self._selected_installment()
         if installment_id is None:
             return
-        if not confirm(
+        motivo, confirmado = QInputDialog.getText(
             self,
-            "Desfazer pagamento",
-            "A parcela voltará para EM ABERTO ou ATRASADO conforme o vencimento, "
-            "e o recebimento sairá do caixa. Continuar?",
-        ):
+            "Estornar pagamento",
+            "A parcela voltará para EM ABERTO ou ATRASADO conforme o vencimento e o\n"
+            "recebimento sairá do caixa. O pagamento não é apagado: ele fica no\n"
+            "histórico marcado como estornado.\n\nInforme o motivo do estorno:",
+        )
+        if not confirmado:
             return
         try:
-            payment_service.undo_payment(installment_id, self.ctx.user)
-        except (BusinessError, PermissionDenied) as exc:
-            warn(self, "Pagamento", str(exc))
+            payment_service.reverse_payment(installment_id, motivo, self.ctx.user)
+        except (BusinessError, PermissionDenied, ValidationError) as exc:
+            warn(self, "Estorno", str(exc))
             return
-        self.ctx.notify("Pagamento desfeito.")
+        self.ctx.notify("Pagamento estornado e registrado na auditoria.")
         self.refresh()
+
+    def _issue_charge(self) -> None:
+        """Cria o documento de cobrança da parcela selecionada."""
+        installment_id = self._selected_installment()
+        if installment_id is None:
+            return
+
+        existente = charge_service.active_for_installment(installment_id)
+        if existente is not None:
+            if not confirm(
+                self,
+                "Cobrança já emitida",
+                f"A parcela já tem a cobrança {existente.numero} "
+                f"({existente.tipo_label}).\n\nReimprimir esse documento?",
+            ):
+                return
+            self._print_charge(existente.id, reimpressao=True)
+            return
+
+        dialog = ChargeTypeDialog(self.ctx, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            document_id = charge_service.create(
+                installment_id,
+                tipo=dialog.tipo,
+                conta_id=dialog.conta_id,
+                juros=dialog.juros,
+                desconto=dialog.desconto,
+                observacao=dialog.observacao,
+                actor=self.ctx.user,
+            )
+        except (
+            BusinessError,
+            NotFoundError,
+            PermissionDenied,
+            ValidationError,
+            charge_service.IntegrationNotConfigured,
+        ) as exc:
+            warn(self, "Documento de cobrança", str(exc))
+            return
+        self._print_charge(document_id)
+
+    def _print_charge(self, document_id: int, reimpressao: bool = False) -> None:
+        try:
+            caminho, dados = charge_service.issue_pdf(document_id, actor=self.ctx.user)
+        except (BusinessError, NotFoundError, PermissionDenied) as exc:
+            warn(self, "Documento de cobrança", str(exc))
+            return
+        self.refresh()
+        self.ctx.notify(
+            f"Cobrança {dados.numero} {'reimpressa' if reimpressao else 'gerada'}."
+        )
+        if confirm(
+            self,
+            "Documento de cobrança",
+            f"Documento {dados.numero} — parcela {dados.parcela}\n"
+            f"Valor a pagar: {format_brl(dados.valor_atualizado)}\n"
+            f"Vencimento: {format_br(dados.vencimento)}\n\n"
+            f"Arquivo:\n{caminho}\n\nAbrir agora para imprimir?",
+        ):
+            open_file(caminho)
+
+    def _issue_slip(self) -> None:
+        """Emite o carnê do parcelamento e oferece abrir para impressão."""
+        try:
+            caminho, dados = slip_service.issue(
+                self.credit_id, actor=self.ctx.user
+            )
+        except (BusinessError, NotFoundError, PermissionDenied) as exc:
+            warn(self, "Carnê", str(exc))
+            return
+
+        self.ctx.notify(f"Carnê {dados.documento} gerado.")
+        aviso = (
+            ""
+            if dados.tem_pix
+            else "\n\nA área do Pix saiu em branco: cadastre a chave da empresa "
+            "em Configurações → Empresa e Pix."
+        )
+        if confirm(
+            self,
+            "Carnê gerado",
+            f"Arquivo salvo em:\n{caminho}{aviso}\n\nAbrir agora para conferir "
+            "e imprimir?",
+        ):
+            open_file(caminho)
 
     def _whatsapp(self) -> None:
         open_charge_whatsapp(

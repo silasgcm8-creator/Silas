@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -18,8 +19,10 @@ from PySide6.QtWidgets import (
 
 from app.config import APP_NAME, APP_VERSION
 from app.security.authentication import SessionUser, current_session
+from app.security.permissions import Permission
 from app.ui import icons
 from app.ui.backup import BackupPage
+from app.ui.charges import ChargesPage
 from app.ui.clients import ClientsPage
 from app.ui.context import AppContext
 from app.ui.credits import CreditsPage
@@ -28,22 +31,25 @@ from app.ui.late import LatePage
 from app.ui.payments import PaymentsPage
 from app.ui.reports import ReportsPage
 from app.ui.settings import SettingsPage
+from app.ui.staff_home import StaffHomePage
 from app.ui.theme import ACCENT, TEXT_MUTED
 from app.ui.widgets import button
 
-MENU = [
-    ("INÍCIO", "home"),
-    ("CLIENTES", "users"),
-    ("NOVO CREDIÁRIO", "plus"),
-    ("CREDIÁRIOS", "list"),
-    ("ATRASADOS", "alert"),
-    ("RECEBIMENTOS", "cash"),
-    ("RELATÓRIOS", "chart"),
-    ("BACKUP", "shield"),
-    ("CONFIGURAÇÕES", "gear"),
+#: Rótulo, ícone e permissão exigida. Sem a permissão o item nem aparece — o
+#: funcionário não vê a estrutura administrativa, e as regras continuam sendo
+#: conferidas nos serviços, não só aqui.
+MENU: list[tuple[str, str, Permission | None]] = [
+    ("INÍCIO", "home", None),
+    ("CLIENTES", "users", Permission.CLIENT_VIEW),
+    ("NOVO CREDIÁRIO", "plus", Permission.CREDIT_CREATE),
+    ("CREDIÁRIOS", "list", Permission.CREDIT_VIEW),
+    ("BOLETOS", "receipt", Permission.CHARGE_VIEW),
+    ("ATRASADOS", "alert", Permission.REPORT_FULL),
+    ("RECEBIMENTOS", "cash", Permission.PAYMENT_REGISTER),
+    ("RELATÓRIOS", "chart", Permission.REPORT_FULL),
+    ("BACKUP", "shield", Permission.BACKUP_RESTORE),
+    ("CONFIGURAÇÕES", "gear", Permission.SETTINGS),
 ]
-
-NEW_CREDIT_INDEX = 2
 
 
 class MainWindow(QMainWindow):
@@ -65,7 +71,6 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._sidebar())
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
@@ -73,44 +78,53 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(0)
 
         self.stack = QStackedWidget()
-        self.dashboard_page = DashboardPage(self.ctx)
         self.clients_page = ClientsPage(self.ctx)
         self.credits_page = CreditsPage(self.ctx)
-        self.late_page = LatePage(self.ctx)
         self.payments_page = PaymentsPage(self.ctx)
-        self.reports_page = ReportsPage(self.ctx)
-        self.backup_page = BackupPage(self.ctx)
-        self.settings_page = SettingsPage(self.ctx)
 
-        self.pages = {
-            0: self.dashboard_page,
-            1: self.clients_page,
-            3: self.credits_page,
-            4: self.late_page,
-            5: self.payments_page,
-            6: self.reports_page,
-            7: self.backup_page,
-            8: self.settings_page,
-        }
-        for page in (
-            self.dashboard_page,
-            self.clients_page,
-            self.credits_page,
-            self.late_page,
-            self.payments_page,
-            self.reports_page,
-            self.backup_page,
-            self.settings_page,
-        ):
+        # O administrador começa no painel; o funcionário, no terminal simples.
+        self.is_admin_view = self.ctx.can(Permission.REPORT_FULL)
+        if self.is_admin_view:
+            self.home_page: QWidget = DashboardPage(self.ctx)
+        else:
+            home = StaffHomePage(self.ctx)
+            home.new_client.connect(self._staff_new_client)
+            home.register_payment.connect(self._staff_register_payment)
+            home.search_client.connect(self._staff_search_client)
+            home.receipts.connect(self._staff_receipts)
+            self.home_page = home
+
+        self.pages: dict[str, QWidget] = {"INÍCIO": self.home_page}
+        if self.ctx.can(Permission.CLIENT_VIEW):
+            self.pages["CLIENTES"] = self.clients_page
+        if self.ctx.can(Permission.CREDIT_VIEW):
+            self.pages["CREDIÁRIOS"] = self.credits_page
+        if self.ctx.can(Permission.CHARGE_VIEW):
+            self.pages["BOLETOS"] = ChargesPage(self.ctx)
+        if self.ctx.can(Permission.PAYMENT_REGISTER):
+            self.pages["RECEBIMENTOS"] = self.payments_page
+        if self.ctx.can(Permission.REPORT_FULL):
+            self.pages["ATRASADOS"] = LatePage(self.ctx)
+            self.pages["RELATÓRIOS"] = ReportsPage(self.ctx)
+        if self.ctx.can(Permission.BACKUP_RESTORE):
+            self.pages["BACKUP"] = BackupPage(self.ctx)
+        if self.ctx.can(Permission.SETTINGS):
+            self.pages["CONFIGURAÇÕES"] = SettingsPage(self.ctx)
+
+        for page in dict.fromkeys(self.pages.values()):
             self.stack.addWidget(page)
 
         content_layout.addWidget(self.stack)
+        # A barra lateral é montada depois das páginas: ela só mostra os itens
+        # que existem para este perfil.
+        layout.addWidget(self._sidebar())
         layout.addWidget(content, 1)
 
         status = QStatusBar()
         status.showMessage(f"{APP_NAME} {APP_VERSION} — pronto")
         self.setStatusBar(status)
 
+        self._install_shortcuts()
         self.nav.setCurrentRow(0)
         self._navigate(0)
 
@@ -144,9 +158,14 @@ class MainWindow(QMainWindow):
         self.nav.setIconSize(QSize(18, 18))
         self.nav.setFrameShape(QFrame.Shape.NoFrame)
         self.nav.setCursor(Qt.CursorShape.PointingHandCursor)
-        for label, icon_name in MENU:
-            item = QListWidgetItem(icons.icon(icon_name, TEXT_MUTED, 18), label)
-            self.nav.addItem(item)
+        self.menu_labels: list[str] = []
+        for label, icon_name, permissao in MENU:
+            if label != "NOVO CREDIÁRIO" and label not in self.pages:
+                continue
+            if permissao is not None and not self.ctx.can(permissao):
+                continue
+            self.nav.addItem(QListWidgetItem(icons.icon(icon_name, TEXT_MUTED, 18), label))
+            self.menu_labels.append(label)
         self.nav.currentRowChanged.connect(self._navigate)
         layout.addWidget(self.nav, 1)
 
@@ -165,21 +184,74 @@ class MainWindow(QMainWindow):
         layout.addWidget(logout)
         return panel
 
-    def _navigate(self, index: int) -> None:
-        if index == NEW_CREDIT_INDEX:
-            self.nav.blockSignals(True)
-            self.nav.setCurrentRow(3)
-            self.nav.blockSignals(False)
-            self.stack.setCurrentWidget(self.credits_page)
-            self.credits_page.refresh()
-            self.credits_page.new_credit()
-            return
+    def _install_shortcuts(self) -> None:
+        """Atalhos do balcão. Só disparam quando a ação é permitida."""
+        atalhos = (
+            ("Ctrl+F", self._staff_search_client, Permission.CLIENT_VIEW),
+            ("Ctrl+N", self._staff_new_client, Permission.CLIENT_CREATE),
+            ("Ctrl+R", self._staff_register_payment, Permission.PAYMENT_REGISTER),
+            ("Ctrl+P", self._staff_receipts, Permission.RECEIPT_ISSUE),
+        )
+        for sequencia, alvo, permissao in atalhos:
+            if not self.ctx.can(permissao):
+                continue
+            acao = QAction(self)
+            acao.setShortcut(QKeySequence(sequencia))
+            acao.triggered.connect(alvo)
+            self.addAction(acao)
 
-        page = self.pages.get(index)
+    def _go(self, label: str) -> QWidget | None:
+        """Leva o menu e a pilha para a tela indicada pelo rótulo."""
+        page = self.pages.get(label)
         if page is None:
-            return
+            return None
+        if label in self.menu_labels:
+            self.nav.blockSignals(True)
+            self.nav.setCurrentRow(self.menu_labels.index(label))
+            self.nav.blockSignals(False)
         self.stack.setCurrentWidget(page)
         page.refresh()
+        return page
+
+    def _staff_new_client(self) -> None:
+        page = self._go("CLIENTES")
+        if page is not None:
+            page.new_client()
+
+    def _staff_search_client(self) -> None:
+        page = self._go("CLIENTES")
+        if page is not None:
+            page.focus_search()
+
+    def _staff_register_payment(self) -> None:
+        """Do balcão para o pagamento: pesquisa do cliente já em foco."""
+        page = self._go("CLIENTES")
+        if page is not None:
+            page.focus_search()
+            self.ctx.notify(
+                "Pesquise o cliente, abra a ficha e escolha a parcela para receber."
+            )
+
+    def _staff_receipts(self) -> None:
+        """Vai para BOLETOS, onde estão cobranças, recebimento e comprovante."""
+        page = self._go("BOLETOS") or self._go("RECEBIMENTOS")
+        if page is not None:
+            self.ctx.notify(
+                "Selecione o documento e use Receber pagamento ou Comprovante."
+            )
+
+    def _navigate(self, index: int) -> None:
+        if not 0 <= index < len(self.menu_labels):
+            return
+        label = self.menu_labels[index]
+
+        if label == "NOVO CREDIÁRIO":
+            page = self._go("CREDIÁRIOS")
+            if page is not None:
+                page.new_credit()
+            return
+
+        self._go(label)
 
     def _refresh_current(self) -> None:
         page = self.stack.currentWidget()

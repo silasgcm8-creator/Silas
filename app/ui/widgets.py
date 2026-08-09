@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
-from PySide6.QtCore import QDate, Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import QDate, Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
@@ -339,6 +341,28 @@ def confirm(parent: QWidget, title: str, message: str) -> bool:
         QMessageBox.StandardButton.No,
     )
     return answer == QMessageBox.StandardButton.Yes
+
+
+def open_file(path: Path | str) -> bool:
+    """Abre um arquivo no programa padrão do sistema (visualizar e imprimir).
+
+    No Windows usa `os.startfile`, que é o caminho nativo e leva o PDF direto ao
+    leitor instalado, onde o funcionário manda imprimir. Nos outros sistemas cai
+    no serviço de desktop do Qt. Não depende de internet.
+    """
+    target = Path(path)
+    if not target.exists():
+        return False
+    try:
+        starter = getattr(os, "startfile", None)
+        if starter is not None:  # Windows
+            starter(str(target))  # noqa: S606
+            return True
+        return bool(
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target.resolve())))
+        )
+    except OSError:
+        return False
 
 
 def empty_hint(text: str) -> QLabel:

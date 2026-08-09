@@ -107,10 +107,10 @@ def test_baixa_condicional_nao_reabre_parcela_ja_paga(admin, crediario):
         assert repo.settle(parcela.id, date.today()) is False
 
 
-def test_desfazer_pagamento_volta_para_atrasado(admin, crediario):
+def test_estorno_volta_parcela_para_atrasado(admin, crediario):
     parcela = credit_service.get_detail(crediario).installments[0]
     payment_service.mark_as_paid(parcela.id, admin)
-    payment_service.undo_payment(parcela.id, admin)
+    payment_service.reverse_payment(parcela.id, "Lançado na parcela errada", admin)
 
     detalhe = credit_service.get_detail(crediario)
     assert detalhe.installments[0].status == "ATRASADO"

@@ -62,6 +62,17 @@ def validate_password(value: str | None) -> str:
     return password
 
 
+def validate_reversal_reason(value: str | None) -> str:
+    """O motivo do estorno é obrigatório: é o que dá sentido ao histórico."""
+    motivo = " ".join((value or "").split())
+    if len(motivo) < 5:
+        raise ValidationError(
+            "Informe o motivo do estorno (no mínimo 5 caracteres). "
+            "Ele fica registrado na auditoria."
+        )
+    return motivo[:300]
+
+
 def validate_installment_count(value: object) -> int:
     try:
         count = int(str(value).strip())

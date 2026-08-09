@@ -1,0 +1,7 @@
+# Scripts do Windows precisam de fim de linha CRLF para o cmd.exe.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+# O icone e binario: nao converter.
+*.ico binary
+*.pdf binary
+*.db binary
