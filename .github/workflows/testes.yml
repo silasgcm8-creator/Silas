@@ -7,6 +7,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      versao:
+        description: "Publicar release com esta versão (ex.: v1.0.0). Vazio = só testar."
+        required: false
+        default: ""
 
 env:
   # Servidor de CI não tem tela: o Qt usa o backend offscreen.
@@ -92,11 +97,15 @@ jobs:
           path: dist/SYS_Crediario.exe
           if-no-files-found: error
 
-      - name: Publicar na aba Releases (somente em tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Em tag v* ou em disparo manual com "versao" preenchida. No disparo
+      # manual o gh cria a própria tag no servidor, apontando para este commit.
+      - name: Publicar na aba Releases
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.versao != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSAO: ${{ inputs.versao || github.ref_name }}
         run: >
-          gh release create "${{ github.ref_name }}" dist/SYS_Crediario.exe
-          --title "SYS CREDIÁRIO ${{ github.ref_name }}"
-          --notes "Executável para Windows da Ótica Visão, gerado e verificado automaticamente pelo CI. Baixe o SYS_Crediario.exe, coloque em qualquer pasta e abra — não precisa de Python. Os dados ficam em C:\Users\SEU_USUARIO\SYS_Crediario e nunca são apagados ao atualizar o programa."
+          gh release create "$env:VERSAO" dist/SYS_Crediario.exe
+          --target "${{ github.sha }}"
+          --title "SYS CREDIÁRIO $env:VERSAO"
+          --notes "Executável para Windows da Ótica Visão, gerado e verificado automaticamente pelo CI. Baixe o SYS_Crediario.exe, coloque em qualquer pasta e abra — não precisa de Python instalado. Os dados ficam em C:\Users\SEU_USUARIO\SYS_Crediario e nunca são apagados ao atualizar o programa. Na primeira abertura, o Windows SmartScreen pode avisar sobre editor desconhecido: clique em Mais informações e depois Executar assim mesmo."
