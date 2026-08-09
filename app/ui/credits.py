@@ -29,6 +29,7 @@ from app.services import (
 )
 from app.services.errors import BusinessError, NotFoundError, ValidationError
 from app.security.permissions import Permission, PermissionDenied
+from app.ui.charge_dialogs import ChargeTypeDialog
 from app.ui.context import AppContext
 from app.ui.theme import ACCENT, GREEN, RED, TEXT_MUTED, YELLOW
 from app.ui.widgets import (
@@ -53,6 +54,7 @@ from app.ui.widgets import (
     text_item,
     warn,
 )
+from app.utils.dates import format_br
 from app.utils.money import ZERO, format_brl, parse_brl
 from app.utils.whatsapp import OFFLINE_MESSAGE, build_message, open_whatsapp
 
@@ -386,23 +388,64 @@ class CreditDetailDialog(QDialog):
         self.refresh()
 
     def _issue_charge(self) -> None:
-        """Documento de cobrança da parcela escolhida (pagamento na loja)."""
+        """Cria o documento de cobrança da parcela selecionada."""
         installment_id = self._selected_installment()
         if installment_id is None:
             return
+
+        existente = charge_service.active_for_installment(installment_id)
+        if existente is not None:
+            if not confirm(
+                self,
+                "Cobrança já emitida",
+                f"A parcela já tem a cobrança {existente.numero} "
+                f"({existente.tipo_label}).\n\nReimprimir esse documento?",
+            ):
+                return
+            self._print_charge(existente.id, reimpressao=True)
+            return
+
+        dialog = ChargeTypeDialog(self.ctx, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
         try:
-            caminho, dados = charge_service.issue(installment_id, actor=self.ctx.user)
+            document_id = charge_service.create(
+                installment_id,
+                tipo=dialog.tipo,
+                conta_id=dialog.conta_id,
+                juros=dialog.juros,
+                desconto=dialog.desconto,
+                observacao=dialog.observacao,
+                actor=self.ctx.user,
+            )
+        except (
+            BusinessError,
+            NotFoundError,
+            PermissionDenied,
+            ValidationError,
+            charge_service.IntegrationNotConfigured,
+        ) as exc:
+            warn(self, "Documento de cobrança", str(exc))
+            return
+        self._print_charge(document_id)
+
+    def _print_charge(self, document_id: int, reimpressao: bool = False) -> None:
+        try:
+            caminho, dados = charge_service.issue_pdf(document_id, actor=self.ctx.user)
         except (BusinessError, NotFoundError, PermissionDenied) as exc:
             warn(self, "Documento de cobrança", str(exc))
             return
-
-        self.ctx.notify(f"Cobrança {dados.codigo} gerada.")
+        self.refresh()
+        self.ctx.notify(
+            f"Cobrança {dados.numero} {'reimpressa' if reimpressao else 'gerada'}."
+        )
         if confirm(
             self,
-            "Documento de cobrança gerado",
-            f"Parcela {dados.parcela} — {format_brl(dados.valor)}\n"
-            f"Código da cobrança: {dados.codigo}\n\n"
-            f"Arquivo salvo em:\n{caminho}\n\nAbrir agora para imprimir?",
+            "Documento de cobrança",
+            f"Documento {dados.numero} — parcela {dados.parcela}\n"
+            f"Valor a pagar: {format_brl(dados.valor_atualizado)}\n"
+            f"Vencimento: {format_br(dados.vencimento)}\n\n"
+            f"Arquivo:\n{caminho}\n\nAbrir agora para imprimir?",
         ):
             open_file(caminho)
 

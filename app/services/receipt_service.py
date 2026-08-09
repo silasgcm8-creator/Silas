@@ -25,6 +25,7 @@ from app.services import company_service, log_service
 from app.services.document_header import draw_header
 from app.services.errors import BusinessError, NotFoundError
 from app.utils.dates import format_br, format_datetime_br
+from app.models.status import payment_method_label
 from app.utils.money import format_brl
 
 A4 = "A4"
@@ -49,6 +50,8 @@ class ReceiptData:
     funcionario: str
     situacao: str
     crediario_id: int
+    forma: str = ""
+    documento: str = ""
 
     def nome_arquivo(self, layout: str = A4) -> str:
         """Nome do arquivo. O formato entra no nome para os dois coexistirem."""
@@ -97,11 +100,24 @@ def build_receipt(payment_id: int) -> ReceiptData:
         funcionario=row.usuario_nome or "—",
         situacao="PAGO",
         crediario_id=row.crediario_id,
+        forma=payment_method_label(row.forma_pagamento) if row.forma_pagamento else "",
+        documento=_charge_number(row.documento_id),
     )
 
 
+def _charge_number(documento_id: int | None) -> str:
+    """Número do documento de cobrança que originou o recebimento, se houver."""
+    if not documento_id:
+        return ""
+    from app.models.charge import ChargeDocument
+
+    with session_scope() as session:
+        documento = session.get(ChargeDocument, documento_id)
+        return documento.numero if documento else ""
+
+
 def _lines(data: ReceiptData) -> list[tuple[str, str]]:
-    return [
+    linhas = [
         ("Cliente", data.cliente),
         ("CPF", data.cpf_mascarado),
         ("Telefone", data.telefone),
@@ -112,9 +128,14 @@ def _lines(data: ReceiptData) -> list[tuple[str, str]]:
         ("Data do pagamento", format_br(data.data_pagamento)),
         ("Registrado em", format_datetime_br(data.registrado_em)),
         ("Identificador", data.codigo),
-        ("Funcionário", data.funcionario),
-        ("Status", data.situacao),
     ]
+    if data.forma:
+        linhas.append(("Forma de pagamento", data.forma))
+    if data.documento:
+        linhas.append(("Documento de cobrança", data.documento))
+    linhas.append(("Funcionário", data.funcionario))
+    linhas.append(("Status", data.situacao))
+    return linhas
 
 
 def default_path(data: ReceiptData, layout: str = A4) -> Path:

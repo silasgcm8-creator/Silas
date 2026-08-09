@@ -24,8 +24,11 @@ from app.config import APP_NAME, APP_VERSION, settings
 from app.models.status import Role
 from app.security.password import algorithm
 from app.security.permissions import Permission, PermissionDenied
+from app.models.charge import CHARGE_TYPE_LABELS, TYPE_BANK, TYPE_REGISTERED, TYPE_STORE
 from app.services import (
     backup_service,
+    bank_account_service,
+    charge_service,
     company_service,
     log_service,
     slip_service,
@@ -39,6 +42,7 @@ from app.ui.widgets import (
     DataTable,
     SectionTitle,
     button,
+    confirm,
     danger_button,
     error,
     field_label,
@@ -169,6 +173,8 @@ class SettingsPage(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._users_tab(), "Usuários")
         self.tabs.addTab(self._company_tab(), "Identidade e Pix")
+        self.tabs.addTab(self._banks_tab(), "Bancos e recebimentos")
+        self.tabs.addTab(self._charges_tab(), "Cobranças")
         self.tabs.addTab(self._backup_tab(), "Backup automático")
         self.tabs.addTab(self._mobile_tab(), "Acesso pelo celular")
         self.tabs.addTab(self._logs_tab(), "Log de atividades")
@@ -178,8 +184,10 @@ class SettingsPage(QWidget):
         admin = ctx.can(Permission.USER_MANAGE)
         self.tabs.setTabEnabled(0, admin)
         self.tabs.setTabEnabled(1, ctx.can(Permission.SETTINGS))
-        self.tabs.setTabEnabled(2, ctx.can(Permission.SETTINGS))
-        self.tabs.setTabEnabled(4, ctx.can(Permission.LOG_VIEW))
+        self.tabs.setTabEnabled(2, ctx.can(Permission.BANK_MANAGE))
+        self.tabs.setTabEnabled(3, ctx.can(Permission.SETTINGS))
+        self.tabs.setTabEnabled(4, ctx.can(Permission.SETTINGS))
+        self.tabs.setTabEnabled(6, ctx.can(Permission.LOG_VIEW))
 
     # ----- identidade e recebimento -----------------------------------
     def _company_tab(self) -> QWidget:
@@ -287,6 +295,175 @@ class SettingsPage(QWidget):
             return
         self._load_company()
         self.ctx.notify("Dados salvos.")
+
+    # ----- bancos e recebimentos --------------------------------------
+    def _banks_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(12)
+
+        aviso = QLabel(
+            "Somente o administrador cadastra e altera contas. O funcionário "
+            "apenas escolhe uma conta já autorizada ao emitir a cobrança."
+        )
+        aviso.setObjectName("Muted")
+        aviso.setWordWrap(True)
+        layout.addWidget(aviso)
+
+        bar = QHBoxLayout()
+        nova = primary_button("Nova conta", "plus")
+        nova.clicked.connect(self._new_account)
+        editar = button("Editar", "users")
+        editar.clicked.connect(self._edit_account)
+        alternar = button("Ativar / desativar", "check")
+        alternar.clicked.connect(self._toggle_account)
+        excluir = danger_button("Excluir", "logout")
+        excluir.clicked.connect(self._delete_account)
+        for widget in (nova, editar, alternar, excluir):
+            bar.addWidget(widget)
+        bar.addStretch(1)
+        layout.addLayout(bar)
+
+        self.accounts_table = DataTable(
+            ["Identificação", "Banco", "Agência", "Conta", "Beneficiário", "PIX", "Situação"],
+            stretch=1,
+            sortable=False,
+        )
+        layout.addWidget(self.accounts_table, 1)
+        self._load_accounts()
+        return page
+
+    def _load_accounts(self) -> None:
+        contas = bank_account_service.list_accounts(only_active=False)
+        self.accounts_table.fill(
+            [
+                [
+                    text_item(conta.identificacao, key=conta.id),
+                    text_item(conta.banco or "—"),
+                    text_item(conta.agencia or "—"),
+                    text_item(conta.conta or "—"),
+                    text_item(conta.beneficiario or "—"),
+                    text_item(conta.pix or "—"),
+                    text_item("Ativa" if conta.ativa else "Desativada"),
+                ]
+                for conta in contas
+            ]
+        )
+
+    def _new_account(self) -> None:
+        from app.ui.bank_dialog import BankAccountDialog
+
+        if BankAccountDialog(self.ctx, None, self).exec() == QDialog.DialogCode.Accepted:
+            self._load_accounts()
+
+    def _edit_account(self) -> None:
+        from app.ui.bank_dialog import BankAccountDialog
+
+        account_id = self.accounts_table.selected_key()
+        if account_id is None:
+            warn(self, "Contas", "Selecione uma conta na lista.")
+            return
+        if BankAccountDialog(self.ctx, account_id, self).exec() == QDialog.DialogCode.Accepted:
+            self._load_accounts()
+
+    def _toggle_account(self) -> None:
+        account_id = self.accounts_table.selected_key()
+        if account_id is None:
+            warn(self, "Contas", "Selecione uma conta na lista.")
+            return
+        try:
+            conta = bank_account_service.get_account(account_id)
+            bank_account_service.set_active(account_id, not conta.ativa, self.ctx.user)
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Contas", str(exc))
+            return
+        self._load_accounts()
+        self.ctx.notify("Conta atualizada.")
+
+    def _delete_account(self) -> None:
+        account_id = self.accounts_table.selected_key()
+        if account_id is None:
+            warn(self, "Contas", "Selecione uma conta na lista.")
+            return
+        if not confirm(
+            self,
+            "Excluir conta",
+            "Se a conta já foi usada em alguma cobrança, ela será apenas "
+            "desativada — para não apagar informação de documento emitido.\n\n"
+            "Continuar?",
+        ):
+            return
+        try:
+            bank_account_service.delete_account(account_id, self.ctx.user)
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Contas", str(exc))
+            return
+        self._load_accounts()
+        self.ctx.notify("Conta removida ou desativada.")
+
+    # ----- modalidades de cobrança -----------------------------------
+    def _charges_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(12)
+
+        layout.addWidget(field_label("FORMAS PERMITIDAS"))
+        self.charge_checks: dict[str, QCheckBox] = {}
+        for tipo in (TYPE_STORE, TYPE_BANK, TYPE_REGISTERED):
+            caixa = QCheckBox(CHARGE_TYPE_LABELS[tipo])
+            if tipo == TYPE_REGISTERED:
+                caixa.setToolTip(
+                    "Só funciona com integração oficial contratada com o banco."
+                )
+            layout.addWidget(caixa)
+            self.charge_checks[tipo] = caixa
+
+        layout.addWidget(field_label("FORMA PADRÃO DE COBRANÇA"))
+        self.charge_default = QComboBox()
+        self.charge_default.setMinimumHeight(38)
+        self.charge_default.addItem("Perguntar sempre", charge_service.ASK_ALWAYS)
+        for tipo in (TYPE_STORE, TYPE_BANK):
+            self.charge_default.addItem(CHARGE_TYPE_LABELS[tipo], tipo)
+        layout.addWidget(self.charge_default)
+
+        salvar = primary_button("Salvar formas de cobrança", "check")
+        salvar.clicked.connect(self._save_charge_settings)
+        linha = QHBoxLayout()
+        linha.addWidget(salvar)
+        linha.addStretch(1)
+        layout.addLayout(linha)
+
+        self.charge_hint = QLabel(
+            "Boleto bancário registrado depende de integração oficial. Enquanto "
+            "não houver, a emissão é recusada — o sistema não cria linha "
+            "digitável nem código de barras bancário."
+        )
+        self.charge_hint.setObjectName("Muted")
+        self.charge_hint.setWordWrap(True)
+        layout.addWidget(self.charge_hint)
+        layout.addStretch(1)
+
+        self._load_charge_settings()
+        return page
+
+    def _load_charge_settings(self) -> None:
+        permitidas = charge_service.allowed_types()
+        for tipo, caixa in self.charge_checks.items():
+            caixa.setChecked(tipo in permitidas)
+        indice = self.charge_default.findData(charge_service.default_type())
+        self.charge_default.setCurrentIndex(max(0, indice))
+
+    def _save_charge_settings(self) -> None:
+        escolhidas = [tipo for tipo, caixa in self.charge_checks.items() if caixa.isChecked()]
+        try:
+            charge_service.save_charge_settings(
+                escolhidas, self.charge_default.currentData(), self.ctx.user
+            )
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Cobranças", str(exc))
+            return
+        self._load_charge_settings()
+        self.ctx.notify("Formas de cobrança salvas.")
 
     # ----- backup automático ----------------------------------------
     def _backup_tab(self) -> QWidget:

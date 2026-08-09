@@ -52,6 +52,13 @@ class Payment(Base):
     #: Identificador da operação, impresso no comprovante do cliente.
     codigo: Mapped[str] = mapped_column(sa.String(24), default="", index=True)
 
+    #: Forma realmente usada no caixa (dinheiro, Pix, cartão...). Independe da
+    #: modalidade do documento de cobrança.
+    forma_pagamento: Mapped[str] = mapped_column(sa.String(24), default="")
+
+    #: Documento de cobrança que originou o recebimento, quando houver.
+    documento_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, index=True)
+
     usuario_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True
     )

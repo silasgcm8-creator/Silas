@@ -64,6 +64,8 @@ class PaymentRepository(BaseRepository[Payment]):
                 Payment.usuario_nome,
                 Payment.codigo,
                 Payment.parcela_id,
+                Payment.forma_pagamento,
+                Payment.documento_id,
             )
             .select_from(Payment)
             .join(Client, Client.id == Payment.cliente_id)
@@ -95,6 +97,8 @@ class PaymentRepository(BaseRepository[Payment]):
                 Payment.data_pagamento,
                 Payment.criado_em,
                 Payment.usuario_nome,
+                Payment.forma_pagamento,
+                Payment.documento_id,
                 Payment.estornado_em,
                 Client.nome.label("cliente"),
                 Client.cpf,

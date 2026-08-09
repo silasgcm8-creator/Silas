@@ -13,6 +13,7 @@ from app.database.connection import session_scope
 from app.models.log import LogAction
 from app.models.payment import Payment
 from app.models.reversal import PaymentReversal
+from app.models.status import PaymentMethod, payment_method_label
 from app.repositories.credit_repository import CreditRepository
 from app.repositories.installment_repository import InstallmentRepository
 from app.repositories.payment_repository import PaymentRepository
@@ -39,6 +40,8 @@ class PaymentRow:
     usuario: str
     codigo: str = ""
     parcela_id: int | None = None
+    forma: str = ""
+    documento_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,8 @@ def mark_as_paid(
     installment_id: int,
     actor: SessionUser | None = None,
     payment_date: date | None = None,
+    forma_pagamento: str = "",
+    documento_id: int | None = None,
 ) -> int:
     """Marca a parcela como paga e registra o recebimento no caixa.
 
@@ -84,6 +89,7 @@ def mark_as_paid(
     if actor:
         require(actor.role, Permission.PAYMENT_REGISTER)
     payment_date = payment_date or date.today()
+    forma = PaymentMethod.from_value(forma_pagamento).value if forma_pagamento else ""
 
     with session_scope() as session:
         installments = InstallmentRepository(session)
@@ -117,6 +123,8 @@ def mark_as_paid(
             valor=valor,
             data_pagamento=payment_date,
             codigo=_build_code(payments, payment_date),
+            forma_pagamento=forma,
+            documento_id=documento_id,
             usuario_id=actor.id if actor else None,
             usuario_nome=actor.nome if actor else "sistema",
         )
@@ -134,7 +142,9 @@ def mark_as_paid(
             actor,
             detalhes=(
                 f"{cliente_nome} — parcela {numero}/{total_parcelas}"
-                f" de {format_brl(valor)} (recebimento {payment.codigo})"
+                f" de {format_brl(valor)} (recebimento {payment.codigo}"
+                + (f", {payment_method_label(forma)}" if forma else "")
+                + ")"
             ),
             cliente_id=cliente_id,
             crediario_id=credit_id,
@@ -248,6 +258,8 @@ def list_payments(start: date, end: date, term: str = "") -> list[PaymentRow]:
                 usuario=row.usuario_nome or "—",
                 codigo=row.codigo,
                 parcela_id=row.parcela_id,
+                forma=payment_method_label(row.forma_pagamento),
+                documento_id=row.documento_id,
             )
             for row in rows
         ]

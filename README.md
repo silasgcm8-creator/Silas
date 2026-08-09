@@ -9,7 +9,9 @@ não depende de navegador.
 - Situação da parcela calculada sozinha: **PAGO**, **EM ABERTO**, **ATRASADO**
 - Registro de pagamento com identificador da operação
 - **Comprovante de pagamento em PDF** (A4 ou compacto), pronto para imprimir
-- **Carnê de pagamento** com todas as parcelas, QR Code Pix da empresa e área
+- **Módulo BOLETOS**: documentos de cobrança por parcela, em três modalidades,
+  com histórico, filtros, reimpressão, cancelamento e recebimento no caixa
+- **Carnê de pagamento** com todas as parcelas, QR Code Pix da loja e área
   reservada para o código de barras do banco
 - Estorno auditado: o pagamento nunca é apagado, e o motivo fica registrado
 - Tela de atrasados, recebimentos, relatórios e backup
@@ -79,6 +81,11 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 | Registrar pagamento | ✔ | ✔ |
 | Emitir comprovante | ✔ | ✔ |
 | Emitir carnê / Pix | ✔ | ✔ |
+| Criar cobrança, imprimir e reimprimir | ✔ | ✔ |
+| Receber pagamento e imprimir comprovante | ✔ | ✔ |
+| Cancelar documento de cobrança | ✔ | — |
+| Cadastrar / alterar contas bancárias | ✔ | — |
+| Configurar modalidades de cobrança | ✔ | — |
 | Abrir WhatsApp | ✔ | ✔ |
 | Estornar pagamento | ✔ | — |
 | Excluir cliente | ✔ | — |
@@ -184,6 +191,74 @@ balcão.
 > Este carnê **não é um boleto bancário**: apenas um banco pode emitir um título
 > cobrável na rede bancária. O próprio documento diz isso no rodapé, para que
 > ninguém o confunda com uma cobrança registrada.
+
+---
+
+## Módulo BOLETOS
+
+Menu lateral → **BOLETOS**. É onde ficam todos os documentos de cobrança
+emitidos, com filtros rápidos (**Todos / Em aberto / Pagos / Atrasados /
+Cancelados**), busca por nome, CPF, número do documento, crediário ou parcela, e
+filtro por tipo, conta e período (emissão ou vencimento).
+
+Ações: **reimprimir / abrir PDF**, **receber pagamento**, **comprovante**,
+**histórico** e **cancelar documento** (só administrador).
+
+### Três modalidades
+
+| | O que sai impresso |
+|---|---|
+| **Exclusivamente na Ótica Visão** | Pagamento presencial. **Nenhum** dado bancário no documento. |
+| **Banco / PIX** | Os dados da conta que o administrador cadastrou, incluindo a chave Pix. |
+| **Boleto bancário registrado** | Só com integração oficial contratada com o banco. |
+
+> O sistema **nunca cria** linha digitável, código de barras bancário, nosso
+> número ou dado bancário fictício. Sem integração oficial, a emissão de boleto
+> registrado é recusada com mensagem clara. Os dados de banco só existem porque
+> o administrador os digitou.
+
+### Criando uma cobrança
+
+Na ficha do crediário → selecione a parcela → **Documento de cobrança**.
+Escolha o tipo de pagamento; a tela mostra apenas o que interessa àquela
+modalidade. Pode informar **juros/multa** e **desconto**, e o documento traz
+valor original, ajustes e **valor atualizado**.
+
+O documento sai em A4 com **VALOR A PAGAR** e **VENCIMENTO** em destaque, e um
+**comprovante destacável** no rodapé, com espaço para data, forma de pagamento e
+assinatura. O arquivo é nomeado
+`Cobranca_NomeCliente_Parcela_XX_DD-MM-AAAA.pdf`, já com os caracteres inválidos
+do Windows removidos.
+
+Cada documento recebe um número interno (**OV-000001**) e um **QR Code
+interno**, que carrega só esse número — nada de CPF, telefone ou nome dentro do
+QR. Ele serve para localizar a cobrança: digite ou leia o número na busca de
+**Clientes** e o crediário abre direto. **O QR não é Pix e não é boleto.**
+
+### Recebendo o pagamento
+
+Em **BOLETOS** → selecione o documento → **Receber pagamento**. Escolha a forma
+realmente usada no caixa (dinheiro, PIX, débito, crédito, transferência, outro)
+— mesmo que o documento tenha sido emitido para pagamento presencial. O sistema
+pede **confirmação** com cliente, parcela, valor e forma antes de baixar a
+parcela, e só então marca como **PAGO**. Em seguida oferece o comprovante.
+
+A situação do documento acompanha a parcela: **EM ABERTO**, **PAGO**,
+**ATRASADO**. **CANCELADO** é o único estado gravado, com autor e motivo.
+Uma parcela só pode ter **um documento ativo**; cancelar libera nova emissão.
+
+### Contas de recebimento
+
+**CONFIGURAÇÕES → Bancos e recebimentos** (somente administrador): nome de
+identificação, banco e código, agência e dígito, conta e dígito, tipo de conta,
+beneficiário, CPF/CNPJ, chave Pix e tipo, além de carteira, convênio e código do
+beneficiário para uso futuro em cobrança registrada. Pode cadastrar várias
+contas ("Banco Principal", "PIX Loja") e desativar as que não usa mais.
+Conta já usada em cobrança é **desativada em vez de apagada**, para não destruir
+a informação de documentos emitidos.
+
+**CONFIGURAÇÕES → Cobranças**: quais modalidades ficam liberadas e qual é a
+padrão (ou *perguntar sempre*).
 
 ### Estorno
 
@@ -339,6 +414,7 @@ SYS_Crediario/
 │   ├── security/           senhas, sessão e permissões
 │   ├── ui/                 telas em PySide6
 │   ├── api/                servidor local FastAPI
+│   ├── services/banking/   camada de integração bancária (futuro)
 │   └── utils/              CPF, dinheiro, datas, validação, WhatsApp, Pix,
 │                           exportação
 ├── tests/                  testes automatizados

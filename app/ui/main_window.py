@@ -22,6 +22,7 @@ from app.security.authentication import SessionUser, current_session
 from app.security.permissions import Permission
 from app.ui import icons
 from app.ui.backup import BackupPage
+from app.ui.charges import ChargesPage
 from app.ui.clients import ClientsPage
 from app.ui.context import AppContext
 from app.ui.credits import CreditsPage
@@ -42,6 +43,7 @@ MENU: list[tuple[str, str, Permission | None]] = [
     ("CLIENTES", "users", Permission.CLIENT_VIEW),
     ("NOVO CREDIÁRIO", "plus", Permission.CREDIT_CREATE),
     ("CREDIÁRIOS", "list", Permission.CREDIT_VIEW),
+    ("BOLETOS", "receipt", Permission.CHARGE_VIEW),
     ("ATRASADOS", "alert", Permission.REPORT_FULL),
     ("RECEBIMENTOS", "cash", Permission.PAYMENT_REGISTER),
     ("RELATÓRIOS", "chart", Permission.REPORT_FULL),
@@ -97,6 +99,8 @@ class MainWindow(QMainWindow):
             self.pages["CLIENTES"] = self.clients_page
         if self.ctx.can(Permission.CREDIT_VIEW):
             self.pages["CREDIÁRIOS"] = self.credits_page
+        if self.ctx.can(Permission.CHARGE_VIEW):
+            self.pages["BOLETOS"] = ChargesPage(self.ctx)
         if self.ctx.can(Permission.PAYMENT_REGISTER):
             self.pages["RECEBIMENTOS"] = self.payments_page
         if self.ctx.can(Permission.REPORT_FULL):
@@ -229,10 +233,11 @@ class MainWindow(QMainWindow):
             )
 
     def _staff_receipts(self) -> None:
-        page = self._go("RECEBIMENTOS")
+        """Vai para BOLETOS, onde estão cobranças, recebimento e comprovante."""
+        page = self._go("BOLETOS") or self._go("RECEBIMENTOS")
         if page is not None:
             self.ctx.notify(
-                "Selecione o recebimento na lista e clique em Comprovante."
+                "Selecione o documento e use Receber pagamento ou Comprovante."
             )
 
     def _navigate(self, index: int) -> None:

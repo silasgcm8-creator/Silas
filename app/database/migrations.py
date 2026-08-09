@@ -90,6 +90,10 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
     },
 }
 
+#: Colunas acrescentadas ao módulo de cobranças (esquema 5).
+NEW_COLUMNS["pagamentos"]["forma_pagamento"] = "VARCHAR(24) DEFAULT ''"
+NEW_COLUMNS["pagamentos"]["documento_id"] = "INTEGER"
+
 
 def _add_missing_columns() -> None:
     """Acrescenta colunas novas sem tocar nos dados já gravados."""

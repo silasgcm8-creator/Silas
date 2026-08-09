@@ -527,12 +527,12 @@ class ClientsPage(QWidget):
     def _open_exact_cpf(self) -> None:
         """Enter abre direto: aceita CPF cadastrado ou código de cobrança.
 
-        O código de cobrança é o conteúdo do QR interno do documento, então o
-        atendente pode digitá-lo (ou ler com leitor) na mesma busca.
+        O número do documento é o conteúdo do QR interno, então o atendente pode
+        digitá-lo (ou ler com leitor) na mesma busca.
         """
         term = self.search.text().strip()
 
-        cobranca = charge_service.find_by_code(term)
+        cobranca = charge_service.find_by_number(term)
         if cobranca is not None:
             self.open_credit(cobranca.crediario_id)
             return
