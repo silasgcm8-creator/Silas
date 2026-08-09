@@ -236,17 +236,21 @@ class CreditDetailDialog(QDialog):
         self.identity.setObjectName("Muted")
         layout.addWidget(self.identity)
 
-        cards = QGridLayout()
-        cards.setSpacing(12)
-        self.card_compra = MetricCard("Compra", "cash", ACCENT)
-        self.card_pago = MetricCard("Total pago", "check", GREEN)
-        self.card_saldo = MetricCard("Saldo devedor", "list", YELLOW)
-        self.card_vencido = MetricCard("Valor vencido", "alert", RED)
-        for index, card in enumerate(
-            (self.card_compra, self.card_pago, self.card_saldo, self.card_vencido)
-        ):
-            cards.addWidget(card, 0, index)
-        layout.addLayout(cards)
+        # O funcionário abre a ficha para escolher a parcela e receber. Os
+        # cartões consolidados (e o "valor vencido") são do administrador.
+        self.financeiro = ctx.can(Permission.FINANCE_OVERVIEW)
+        if self.financeiro:
+            cards = QGridLayout()
+            cards.setSpacing(12)
+            self.card_compra = MetricCard("Compra", "cash", ACCENT)
+            self.card_pago = MetricCard("Total pago", "check", GREEN)
+            self.card_saldo = MetricCard("Saldo devedor", "list", YELLOW)
+            self.card_vencido = MetricCard("Valor vencido", "alert", RED)
+            for index, card in enumerate(
+                (self.card_compra, self.card_pago, self.card_saldo, self.card_vencido)
+            ):
+                cards.addWidget(card, 0, index)
+            layout.addLayout(cards)
 
         layout.addWidget(SectionTitle("Parcelas"))
         self.table = DataTable(
@@ -299,7 +303,7 @@ class CreditDetailDialog(QDialog):
 
     def refresh(self) -> None:
         try:
-            detail = credit_service.get_detail(self.credit_id)
+            detail = credit_service.get_detail(self.credit_id, actor=self.ctx.user)
         except NotFoundError as exc:
             error(self, "Crediário", str(exc))
             self.reject()
@@ -320,12 +324,13 @@ class CreditDetailDialog(QDialog):
             f"Financiado {format_brl(detail.financiado)}{descricao}"
         )
 
-        self.card_compra.set_value(format_brl(detail.valor_total))
-        self.card_pago.set_value(format_brl(detail.total_pago), color=GREEN)
-        self.card_saldo.set_value(format_brl(detail.saldo))
-        self.card_vencido.set_value(
-            format_brl(detail.vencido), color=RED if detail.vencido > ZERO else None
-        )
+        if self.financeiro:
+            self.card_compra.set_value(format_brl(detail.valor_total))
+            self.card_pago.set_value(format_brl(detail.total_pago), color=GREEN)
+            self.card_saldo.set_value(format_brl(detail.saldo))
+            self.card_vencido.set_value(
+                format_brl(detail.vencido), color=RED if detail.vencido > ZERO else None
+            )
 
         rows = []
         for item in detail.installments:
@@ -491,11 +496,19 @@ class CreditsPage(QWidget):
         super().__init__(parent)
         self.ctx = ctx
         self._term = ""
+        self.financeiro = ctx.can(Permission.FINANCE_OVERVIEW)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        layout.addWidget(page_header("Crediários", "Compras parceladas e seus saldos"))
+        layout.addWidget(
+            page_header(
+                "Crediários",
+                "Compras parceladas e seus saldos"
+                if self.financeiro
+                else "Compras parceladas dos clientes",
+            )
+        )
 
         bar = QHBoxLayout()
         self.search = SearchBox("Pesquisar por cliente ou CPF")
@@ -508,18 +521,10 @@ class CreditsPage(QWidget):
         bar.addWidget(new_button)
         layout.addLayout(bar)
 
-        self.table = DataTable(
-            [
-                "Cliente",
-                "CPF",
-                "Compra",
-                "Parcelas",
-                "Saldo devedor",
-                "Valor vencido",
-            ],
-            stretch=0,
-            sortable=False,
-        )
+        colunas = ["Cliente", "CPF", "Compra", "Parcelas"]
+        if self.financeiro:
+            colunas += ["Saldo devedor", "Valor vencido"]
+        self.table = DataTable(colunas, stretch=0, sortable=False)
         self.table.doubleClicked.connect(lambda *_: self._open_selected())
         layout.addWidget(self.table, 1)
 
@@ -538,20 +543,24 @@ class CreditsPage(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
-        rows = credit_service.list_credits(self._term)
-        self.table.fill(
-            [
-                [
-                    text_item(row.cliente, key=row.id),
-                    text_item(row.cpf),
-                    money_item(row.valor_total),
-                    text_item(f"{row.pagas}/{row.parcelas} pagas"),
-                    money_item(row.saldo),
-                    money_item(row.vencido, color=RED if row.vencido > ZERO else TEXT_MUTED),
-                ]
-                for row in rows
+        rows = credit_service.list_credits(self._term, actor=self.ctx.user)
+        linhas = []
+        for row in rows:
+            celulas = [
+                text_item(row.cliente, key=row.id),
+                text_item(row.cpf),
+                money_item(row.valor_total),
+                text_item(f"{row.pagas}/{row.parcelas} pagas"),
             ]
-        )
+            if self.financeiro:
+                celulas += [
+                    money_item(row.saldo),
+                    money_item(
+                        row.vencido, color=RED if row.vencido > ZERO else TEXT_MUTED
+                    ),
+                ]
+            linhas.append(celulas)
+        self.table.fill(linhas)
         # "Saldo total" é valor consolidado da loja — some para o funcionário.
         if self.ctx.can(Permission.FINANCE_OVERVIEW):
             saldo = sum((row.saldo for row in rows), ZERO)

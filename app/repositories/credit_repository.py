@@ -20,8 +20,13 @@ class CreditRepository(BaseRepository[Credit]):
     model = Credit
 
     def list_with_balances(
-        self, term: str = "", reference: date | None = None, limit: int = 500
+        self,
+        term: str = "",
+        reference: date | None = None,
+        limit: int = 500,
+        include_financials: bool = True,
     ) -> Sequence[sa.Row]:
+        """Com ``include_financials=False`` o banco não soma saldo nem vencido."""
         reference = reference or date.today()
         open_value = sa.case((Installment.pago.is_(False), Installment.valor), else_=0)
         overdue_value = sa.case(
@@ -32,6 +37,8 @@ class CreditRepository(BaseRepository[Credit]):
             else_=0,
         )
         paid_count = sa.case((Installment.pago.is_(True), 1), else_=0)
+        saldo = sum_cents(open_value) if include_financials else sa.literal(0)
+        vencido = sum_cents(overdue_value) if include_financials else sa.literal(0)
         stmt = (
             sa.select(
                 Credit.id,
@@ -43,8 +50,8 @@ class CreditRepository(BaseRepository[Credit]):
                 Credit.entrada,
                 Credit.parcelas,
                 Credit.criado_em,
-                sum_cents(open_value).label("saldo"),
-                sum_cents(overdue_value).label("vencido"),
+                saldo.label("saldo"),
+                vencido.label("vencido"),
                 sa.func.sum(paid_count).label("pagas"),
             )
             .select_from(Credit)

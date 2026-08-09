@@ -21,11 +21,14 @@ def list_clients(
     por_pagina: int = Query(
         client_service.PAGE_SIZE, ge=1, le=500, description="Itens por página"
     ),
-    _: SessionUser = Depends(require_permission(Permission.CLIENT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.CLIENT_VIEW)),
 ) -> list[ClientOut]:
-    """Clientes ativos. O celular pagina para não baixar a base inteira."""
+    """Clientes ativos. O celular pagina para não baixar a base inteira.
+
+    O perfil de quem pediu decide se saldo e vencido acompanham cada linha.
+    """
     rows = client_service.list_clients(
-        busca, limit=por_pagina, offset=(pagina - 1) * por_pagina
+        busca, limit=por_pagina, offset=(pagina - 1) * por_pagina, actor=user
     )
     return [ClientOut(**row.__dict__) for row in rows]
 
@@ -42,10 +45,10 @@ def count_clients(
 @router.get("/{client_id}", response_model=ClientSummaryOut)
 def client_summary(
     client_id: int,
-    _: SessionUser = Depends(require_permission(Permission.CLIENT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.CLIENT_VIEW)),
 ) -> ClientSummaryOut:
     try:
-        summary = client_service.get_summary(client_id)
+        summary = client_service.get_summary(client_id, actor=user)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return ClientSummaryOut(**summary.__dict__)

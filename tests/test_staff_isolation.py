@@ -142,6 +142,61 @@ def test_funcionario_ve_apenas_os_recebimentos_que_ele_registrou(
     assert len(do_admin) == 2
 
 
+def test_listagem_de_clientes_nao_traz_dinheiro_para_o_funcionario(
+    funcionario, admin, carteira
+):
+    """Somar linha a linha não pode ser um atalho para o total da carteira."""
+    do_funcionario = client_service.list_clients(actor=funcionario)
+    assert do_funcionario, "a busca precisa continuar encontrando o cliente"
+    for linha in do_funcionario:
+        assert linha.saldo is None and linha.vencido is None
+        assert linha.nome and linha.cpf and linha.telefone  # o cadastro continua
+
+    do_admin = client_service.list_clients(actor=admin)
+    assert all(linha.saldo is not None for linha in do_admin)
+
+
+def test_listagem_de_crediarios_nao_traz_dinheiro_para_o_funcionario(
+    funcionario, admin, carteira
+):
+    do_funcionario = credit_service.list_credits(actor=funcionario)
+    assert do_funcionario
+    for linha in do_funcionario:
+        assert linha.saldo is None and linha.vencido is None
+        # O que ele precisa para atender continua vindo.
+        assert linha.parcelas > 0 and linha.valor_total > Decimal("0.00")
+
+    assert all(linha.vencido is not None for linha in credit_service.list_credits(actor=admin))
+
+
+def test_ficha_do_cliente_sem_totais_para_o_funcionario(funcionario, admin, cliente, carteira):
+    ficha = client_service.get_summary(cliente, actor=funcionario)
+    assert ficha.nome and ficha.cpf and ficha.telefone
+    assert ficha.total_comprado is None
+    assert ficha.total_pago is None
+    assert ficha.total_aberto is None
+    assert ficha.total_vencido is None
+
+    do_admin = client_service.get_summary(cliente, actor=admin)
+    assert do_admin.total_comprado > Decimal("0.00")
+
+
+def test_parcela_vencida_nao_denuncia_atraso_ao_funcionario(funcionario, admin, carteira):
+    """Ele escolhe a parcela para receber, mas não vê inadimplência."""
+    do_admin = credit_service.get_detail(carteira, actor=admin)
+    vencidas = [i for i in do_admin.installments if i.status == "ATRASADO"]
+    assert vencidas and vencidas[0].dias_atraso > 0, "o cenário precisa ter atraso real"
+
+    do_funcionario = credit_service.get_detail(carteira, actor=funcionario)
+    situacoes = {i.status for i in do_funcionario.installments}
+    assert situacoes <= {"PAGO", "EM ABERTO"}
+    assert all(i.dias_atraso == 0 for i in do_funcionario.installments)
+
+    # E ele continua conseguindo identificar a parcela a receber.
+    abertas = [i for i in do_funcionario.installments if not i.pago]
+    assert abertas and abertas[0].valor > Decimal("0.00") and abertas[0].vencimento
+
+
 def test_o_balcao_continua_funcionando_para_o_funcionario(funcionario):
     """As restrições não podem travar o trabalho do dia a dia."""
     novo = client_service.create_client(
@@ -217,3 +272,36 @@ def test_endpoints_do_balcao_seguem_liberados(api, funcionario, cliente, carteir
     cabecalho = _token(api, "ana", "senha123")
     assert api.get("/clientes", headers=cabecalho).status_code == 200
     assert api.get(f"/clientes/{cliente}", headers=cabecalho).status_code == 200
+
+
+def test_endpoints_do_balcao_nao_devolvem_dinheiro_ao_funcionario(
+    api, funcionario, cliente, carteira
+):
+    """200, mas com os campos financeiros em `null` — não em zero."""
+    cabecalho = _token(api, "ana", "senha123")
+
+    for linha in api.get("/clientes", headers=cabecalho).json():
+        assert linha["saldo"] is None and linha["vencido"] is None
+    for linha in api.get("/crediarios", headers=cabecalho).json():
+        assert linha["saldo"] is None and linha["vencido"] is None
+
+    ficha = api.get(f"/clientes/{cliente}", headers=cabecalho).json()
+    assert ficha["total_aberto"] is None and ficha["total_vencido"] is None
+
+    crediario = api.get(f"/crediarios/{carteira}", headers=cabecalho).json()
+    assert crediario["saldo"] is None and crediario["vencido"] is None
+    assert all(item["dias_atraso"] == 0 for item in crediario["itens"])
+    assert all(item["situacao"] != "ATRASADO" for item in crediario["itens"])
+    # As parcelas continuam lá, com o que ele precisa para receber.
+    assert crediario["itens"] and crediario["itens"][0]["valor"]
+
+
+def test_os_mesmos_endpoints_seguem_completos_para_o_administrador(
+    api, admin, cliente, carteira
+):
+    cabecalho = _token(api, "admin", "senha123")
+
+    assert api.get("/clientes", headers=cabecalho).json()[0]["saldo"] is not None
+    crediario = api.get(f"/crediarios/{carteira}", headers=cabecalho).json()
+    assert crediario["vencido"] is not None
+    assert any(item["dias_atraso"] > 0 for item in crediario["itens"])

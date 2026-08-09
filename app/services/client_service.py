@@ -39,32 +39,36 @@ class DeletedClientRow:
 
 @dataclass(frozen=True)
 class ClientRow:
-    """Linha da tela de clientes."""
+    """Linha da tela de clientes.
+
+    ``saldo`` e ``vencido`` vêm ``None`` para quem não tem a visão financeira:
+    a informação não é omitida da tela, ela não sai do banco.
+    """
 
     id: int
     nome: str
     cpf: str
     telefone: str
-    saldo: Decimal
-    vencido: Decimal
+    saldo: Decimal | None
+    vencido: Decimal | None
     crediarios: int
 
 
 @dataclass(frozen=True)
 class ClientSummary:
-    """Ficha financeira consolidada do cliente."""
+    """Ficha do cliente. Os totais só existem para a visão financeira."""
 
     id: int
     nome: str
     cpf: str
     telefone: str
-    total_comprado: Decimal
-    total_pago: Decimal
-    total_aberto: Decimal
-    total_vencido: Decimal
+    total_comprado: Decimal | None
+    total_pago: Decimal | None
+    total_aberto: Decimal | None
+    total_vencido: Decimal | None
 
     @property
-    def saldo_devedor(self) -> Decimal:
+    def saldo_devedor(self) -> Decimal | None:
         return self.total_aberto
 
 
@@ -156,10 +160,18 @@ def list_clients(
     reference: date | None = None,
     limit: int = PAGE_SIZE,
     offset: int = 0,
+    actor: SessionUser | None = None,
 ) -> list[ClientRow]:
+    """Clientes ativos da busca.
+
+    Sem ``actor`` a chamada é interna do próprio sistema e recebe tudo. Quando
+    vem de uma tela ou de um endpoint, o perfil decide: sem a visão financeira,
+    saldo e vencido não são nem calculados.
+    """
+    financeiro = actor is None or actor.can(Permission.FINANCE_OVERVIEW)
     with session_scope() as session:
         rows = ClientRepository(session).list_with_balances(
-            term, reference, limit=limit, offset=offset
+            term, reference, limit=limit, offset=offset, include_financials=financeiro
         )
         return [
             ClientRow(
@@ -167,20 +179,38 @@ def list_clients(
                 nome=row.nome,
                 cpf=row.cpf,
                 telefone=row.telefone,
-                saldo=from_cents(row.saldo),
-                vencido=from_cents(row.vencido),
+                saldo=from_cents(row.saldo) if financeiro else None,
+                vencido=from_cents(row.vencido) if financeiro else None,
                 crediarios=int(row.crediarios or 0),
             )
             for row in rows
         ]
 
 
-def get_summary(client_id: int, reference: date | None = None) -> ClientSummary:
+def get_summary(
+    client_id: int, reference: date | None = None, actor: SessionUser | None = None
+) -> ClientSummary:
+    """Ficha do cliente. Os totais só são somados para a visão financeira."""
     reference = reference or date.today()
+    financeiro = actor is None or actor.can(Permission.FINANCE_OVERVIEW)
     with session_scope() as session:
         client = ClientRepository(session).get(client_id)
         if client is None:
             raise NotFoundError("Cliente não encontrado.")
+
+        if not financeiro:
+            # As somas nem chegam a ser consultadas: para receber uma parcela o
+            # funcionário precisa do cadastro, não do histórico financeiro.
+            return ClientSummary(
+                id=client.id,
+                nome=client.nome,
+                cpf=client.cpf,
+                telefone=client.telefone,
+                total_comprado=None,
+                total_pago=None,
+                total_aberto=None,
+                total_vencido=None,
+            )
 
         paid = sa.case((Installment.pago.is_(True), Installment.valor), else_=0)
         open_value = sa.case((Installment.pago.is_(False), Installment.valor), else_=0)

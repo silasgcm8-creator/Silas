@@ -115,6 +115,13 @@ suficiente para conferir a operação e reimprimir o comprovante. Na API local, 
 endereços `/painel` e `/atrasados` respondem **403** ao token dele, sem devolver
 dado algum junto.
 
+**Nem somando linha a linha.** As listas de clientes e de crediários também não
+carregam dinheiro para o funcionário: saldo e valor vencido saem `null` (não
+zero) e o banco sequer os calcula na consulta. Uma parcela atrasada aparece para
+ele como **EM ABERTO**, sem dias de atraso — ele precisa escolher a parcela para
+receber, não saber que o cliente está inadimplente. Número, vencimento, valor e
+"paga ou não" continuam visíveis, que é o necessário para atender.
+
 ---
 
 ## Passo 5 — Cadastrar o primeiro cliente

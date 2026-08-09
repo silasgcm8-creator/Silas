@@ -97,8 +97,14 @@ class ClientRepository(BaseRepository[Client]):
         reference: date | None = None,
         limit: int = 500,
         offset: int = 0,
+        include_financials: bool = True,
     ) -> Sequence[sa.Row]:
-        """Clientes com saldo devedor e valor vencido calculados no banco."""
+        """Clientes com saldo devedor e valor vencido calculados no banco.
+
+        Com ``include_financials=False`` o banco **não soma nada**: as colunas
+        de dinheiro saem zeradas na própria consulta. É o que a busca do balcão
+        usa — encontrar o cliente não exige saber quanto ele deve.
+        """
         reference = reference or date.today()
         open_value = sa.case((Installment.pago.is_(False), Installment.valor), else_=0)
         overdue_value = sa.case(
@@ -108,14 +114,16 @@ class ClientRepository(BaseRepository[Client]):
             ),
             else_=0,
         )
+        saldo = sum_cents(open_value) if include_financials else sa.literal(0)
+        vencido = sum_cents(overdue_value) if include_financials else sa.literal(0)
         stmt = (
             sa.select(
                 Client.id,
                 Client.nome,
                 Client.cpf,
                 Client.telefone,
-                sum_cents(open_value).label("saldo"),
-                sum_cents(overdue_value).label("vencido"),
+                saldo.label("saldo"),
+                vencido.label("vencido"),
                 sa.func.count(sa.distinct(Credit.id)).label("crediarios"),
             )
             .select_from(Client)
