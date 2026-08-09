@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QSpinBox,
@@ -343,19 +344,21 @@ class CreditDetailDialog(QDialog):
         installment_id = self._selected_installment()
         if installment_id is None:
             return
-        if not confirm(
+        motivo, confirmado = QInputDialog.getText(
             self,
-            "Desfazer pagamento",
-            "A parcela voltará para EM ABERTO ou ATRASADO conforme o vencimento, "
-            "e o recebimento sairá do caixa. Continuar?",
-        ):
+            "Estornar pagamento",
+            "A parcela voltará para EM ABERTO ou ATRASADO conforme o vencimento e o\n"
+            "recebimento sairá do caixa. O pagamento não é apagado: ele fica no\n"
+            "histórico marcado como estornado.\n\nInforme o motivo do estorno:",
+        )
+        if not confirmado:
             return
         try:
-            payment_service.undo_payment(installment_id, self.ctx.user)
-        except (BusinessError, PermissionDenied) as exc:
-            warn(self, "Pagamento", str(exc))
+            payment_service.reverse_payment(installment_id, motivo, self.ctx.user)
+        except (BusinessError, PermissionDenied, ValidationError) as exc:
+            warn(self, "Estorno", str(exc))
             return
-        self.ctx.notify("Pagamento desfeito.")
+        self.ctx.notify("Pagamento estornado e registrado na auditoria.")
         self.refresh()
 
     def _whatsapp(self) -> None:

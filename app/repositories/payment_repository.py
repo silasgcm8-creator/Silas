@@ -15,16 +15,38 @@ from app.models.payment import Payment
 from app.repositories.base_repository import BaseRepository
 
 
+#: Pagamento válido é o que não foi estornado. Toda consulta de caixa aplica
+#: esta condição — um estorno esquecido aqui devolveria dinheiro ao caixa.
+ACTIVE = Payment.estornado_em.is_(None)
+
+
 class PaymentRepository(BaseRepository[Payment]):
     model = Payment
 
-    def get_by_installment(self, installment_id: int) -> Payment | None:
-        stmt = sa.select(Payment).where(Payment.parcela_id == installment_id)
+    def get_active_by_installment(self, installment_id: int) -> Payment | None:
+        """Recebimento que vale hoje para a parcela (ignora os estornados)."""
+        stmt = sa.select(Payment).where(Payment.parcela_id == installment_id, ACTIVE)
         return self.session.scalars(stmt).first()
 
-    def delete_by_installment(self, installment_id: int) -> int:
-        stmt = sa.delete(Payment).where(Payment.parcela_id == installment_id)
-        return int(self.session.execute(stmt).rowcount or 0)
+    def history_by_installment(self, installment_id: int) -> Sequence[Payment]:
+        """Todo o histórico da parcela, inclusive os pagamentos estornados."""
+        stmt = (
+            sa.select(Payment)
+            .where(Payment.parcela_id == installment_id)
+            .order_by(Payment.id)
+        )
+        return self.session.scalars(stmt).all()
+
+    def get_by_code(self, codigo: str) -> Payment | None:
+        stmt = sa.select(Payment).where(Payment.codigo == codigo)
+        return self.session.scalars(stmt).first()
+
+    def next_sequence_for_day(self, reference: date) -> int:
+        """Próximo número sequencial do dia, usado no código da operação."""
+        stmt = sa.select(sa.func.count()).select_from(Payment).where(
+            Payment.data_pagamento == reference
+        )
+        return int(self.session.scalar(stmt) or 0) + 1
 
     def list_period(
         self, start: date, end: date, term: str = "", limit: int = 1000
@@ -40,12 +62,14 @@ class PaymentRepository(BaseRepository[Payment]):
                 Payment.valor,
                 Payment.crediario_id,
                 Payment.usuario_nome,
+                Payment.codigo,
+                Payment.parcela_id,
             )
             .select_from(Payment)
             .join(Client, Client.id == Payment.cliente_id)
             .join(Credit, Credit.id == Payment.crediario_id)
             .join(Installment, Installment.id == Payment.parcela_id)
-            .where(Payment.data_pagamento.between(start, end))
+            .where(Payment.data_pagamento.between(start, end), ACTIVE)
             .order_by(Payment.data_pagamento.desc(), Payment.id.desc())
             .limit(limit)
         )
@@ -57,6 +81,33 @@ class PaymentRepository(BaseRepository[Payment]):
 
     def total_period(self, start: date, end: date) -> int:
         stmt = sa.select(sum_cents(Payment.valor)).where(
-            Payment.data_pagamento.between(start, end)
+            Payment.data_pagamento.between(start, end), ACTIVE
         )
         return int(self.session.scalar(stmt) or 0)
+
+    def receipt_data(self, payment_id: int) -> sa.Row | None:
+        """Dados completos de um recebimento para emitir o comprovante."""
+        stmt = (
+            sa.select(
+                Payment.id,
+                Payment.codigo,
+                Payment.valor,
+                Payment.data_pagamento,
+                Payment.criado_em,
+                Payment.usuario_nome,
+                Payment.estornado_em,
+                Client.nome.label("cliente"),
+                Client.cpf,
+                Client.telefone,
+                Installment.numero,
+                Installment.vencimento,
+                Credit.parcelas,
+                Credit.id.label("crediario_id"),
+            )
+            .select_from(Payment)
+            .join(Client, Client.id == Payment.cliente_id)
+            .join(Credit, Credit.id == Payment.crediario_id)
+            .join(Installment, Installment.id == Payment.parcela_id)
+            .where(Payment.id == payment_id)
+        )
+        return self.session.execute(stmt).first()

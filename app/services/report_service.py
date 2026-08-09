@@ -14,6 +14,7 @@ from app.database.types import sum_cents
 from app.models.client import Client
 from app.models.credit import Credit
 from app.models.installment import Installment
+from app.models.payment import Payment
 from app.repositories.installment_repository import InstallmentRepository
 from app.repositories.payment_repository import PaymentRepository
 from app.utils.dates import days_late, format_br, month_bounds
@@ -25,11 +26,15 @@ from app.utils.money import ZERO, format_brl, from_cents
 class DashboardData:
     total_a_receber: Decimal
     total_vencido: Decimal
+    recebido_hoje: Decimal
     recebido_no_mes: Decimal
     clientes_em_atraso: int
     parcelas_vencendo_hoje: int
     valor_vencendo_hoje: Decimal
     parcelas_vencidas: int
+    parcelas_em_aberto: int
+    total_clientes: int
+    pagamentos_no_mes: int
 
 
 @dataclass(frozen=True)
@@ -110,16 +115,32 @@ def dashboard(reference: date | None = None) -> DashboardData:
             .where(Installment.pago.is_(False), Installment.vencimento < reference)
         )
         today_count, today_cents = InstallmentRepository(session).due_today_total(reference)
-        received = PaymentRepository(session).total_period(month_start, month_end)
+        payments = PaymentRepository(session)
+        received = payments.total_period(month_start, month_end)
+        received_today = payments.total_period(reference, reference)
+        open_count = session.scalar(
+            sa.select(sa.func.count(Installment.id)).where(Installment.pago.is_(False))
+        )
+        clients_count = session.scalar(sa.select(sa.func.count(Client.id)))
+        month_payments = session.scalar(
+            sa.select(sa.func.count(Payment.id)).where(
+                Payment.data_pagamento.between(month_start, month_end),
+                Payment.estornado_em.is_(None),
+            )
+        )
 
     return DashboardData(
         total_a_receber=from_cents(open_total or 0),
         total_vencido=from_cents(overdue_total or 0),
+        recebido_hoje=from_cents(received_today),
         recebido_no_mes=from_cents(received),
         clientes_em_atraso=int(late_clients or 0),
         parcelas_vencendo_hoje=today_count,
         valor_vencendo_hoje=from_cents(today_cents),
         parcelas_vencidas=int(overdue_count or 0),
+        parcelas_em_aberto=int(open_count or 0),
+        total_clientes=int(clients_count or 0),
+        pagamentos_no_mes=int(month_payments or 0),
     )
 
 

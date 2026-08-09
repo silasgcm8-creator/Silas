@@ -7,10 +7,13 @@ não depende de navegador.
 - Cadastro de clientes (nome, CPF e telefone — nada além disso)
 - Crediários com geração automática das parcelas
 - Situação da parcela calculada sozinha: **PAGO**, **EM ABERTO**, **ATRASADO**
-- Registro e estorno de pagamento
+- Registro de pagamento com identificador da operação
+- **Comprovante de pagamento em PDF** (A4 ou compacto), pronto para imprimir
+- Estorno auditado: o pagamento nunca é apagado, e o motivo fica registrado
 - Tela de atrasados, recebimentos, relatórios e backup
+- Verificação do banco de dados sem reparo automático
 - Cobrança amigável pelo WhatsApp (o envio é sempre decisão do funcionário)
-- Login com perfis de Administrador e Funcionário
+- Login com perfis de Administrador e Funcionário, cada um com sua tela inicial
 - Acesso opcional pelo celular na rede local (Wi‑Fi da empresa)
 
 ---
@@ -72,10 +75,20 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 | Cadastrar e editar cliente | ✔ | ✔ |
 | Criar crediário | ✔ | ✔ |
 | Registrar pagamento | ✔ | ✔ |
+| Emitir comprovante | ✔ | ✔ |
 | Abrir WhatsApp | ✔ | ✔ |
-| Desfazer pagamento | ✔ | — |
+| Estornar pagamento | ✔ | — |
+| Excluir cliente | ✔ | — |
+| Ver atrasados e relatórios | ✔ | — |
 | Restaurar backup | ✔ | — |
+| Verificar banco de dados | ✔ | — |
 | Gerenciar usuários e ver logs | ✔ | — |
+
+As regras são conferidas **nos serviços**, não apenas na interface: o funcionário
+não contorna nenhuma delas nem chamando o código direto ou pela API do celular.
+Ele também não vê os menus administrativos — a tela inicial dele é um terminal
+com quatro ações grandes (**Novo cliente**, **Registrar pagamento**, **Pesquisar
+cliente**, **Comprovantes**) e atalhos `Ctrl+N`, `Ctrl+R`, `Ctrl+F` e `Ctrl+P`.
 
 ---
 
@@ -125,9 +138,28 @@ modo que a soma feche exatamente com o valor financiado.
 Na mesma hora o sistema atualiza saldo do cliente, saldo do crediário, painel,
 relatórios, recebimentos e retira a parcela da lista de atrasados.
 
-Se o pagamento foi lançado por engano, o administrador usa **Desfazer
-pagamento**: a parcela volta para *EM ABERTO* ou *ATRASADO* conforme o
-vencimento e o valor sai do caixa.
+### Comprovante
+
+Em **RECEBIMENTOS**, selecione o pagamento e clique em **Comprovante**
+(ou dê dois cliques na linha, ou use `Ctrl+P`). Escolha o formato:
+
+- **A4** — folha inteira, para o arquivo da empresa.
+- **COMPACTO** — 80 mm de largura, para impressora térmica de balcão.
+
+O PDF é gerado offline e o sistema oferece abrir o arquivo para impressão. Ele
+traz nome do cliente, **CPF parcialmente mascarado** (`529.***.**7-25`), parcela,
+valor, data, hora, identificador da operação, funcionário responsável, a situação
+*PAGO* e espaço para assinatura da empresa. Os arquivos ficam em
+`SYS_Crediario\comprovantes\`.
+
+### Estorno
+
+Se o pagamento foi lançado por engano, o administrador usa **Estornar
+pagamento** e **informa o motivo**, que é obrigatório.
+
+O recebimento **não é apagado**: ele sai do caixa e continua no histórico
+marcado como estornado, junto com motivo, autor, data e hora. A parcela volta
+para *EM ABERTO* ou *ATRASADO* conforme o vencimento e pode ser paga de novo.
 
 ---
 
@@ -156,7 +188,8 @@ Para colocar um ícone na Área de Trabalho, dê dois cliques em `criar_atalho.b
 C:\Users\SEU_USUARIO\SYS_Crediario\
 ├── data\sys_crediario.db     banco de dados
 ├── backups\                  backups gerados
-└── logs\                     registro técnico de erros
+├── comprovantes\             comprovantes de pagamento em PDF
+└── logs\                     registro técnico (rotativo, até 5 arquivos de 2 MB)
 ```
 
 Essa pasta é **permanente**: atualizar o programa ou trocar o `.exe` não apaga
@@ -172,7 +205,12 @@ Menu lateral → **BACKUP**
   no local que você escolher (pen drive, nuvem, rede).
 - **Restaurar backup** — o sistema confere se o arquivo é mesmo um banco do
   SYS CREDIÁRIO, pede confirmação e **guarda automaticamente uma cópia dos dados
-  atuais** antes de substituir.
+  atuais** antes de substituir. Backups de versões anteriores são migrados
+  automaticamente depois de restaurados.
+- **Verificar banco de dados** — roda a verificação de integridade e de vínculos
+  do SQLite. É só diagnóstico: **nenhum reparo automático é tentado**, porque um
+  reparo malfeito destrói dados. Se algo aparecer, o caminho seguro é restaurar o
+  último backup bom.
 
 ---
 
@@ -229,6 +267,12 @@ Também cobrem a leitura de valores em reais (`1.500` = mil e quinhentos), a
 recusa de dois recebimentos para a mesma parcela, a API do celular (token,
 permissão do funcionário e encerramento de sessão) e a migração de bancos
 criados por versões anteriores.
+
+E ainda: o estorno auditado (pagamento preservado, motivo obrigatório, saída do
+caixa e nova cobrança possível), o comprovante em PDF nos dois formatos com CPF
+mascarado, o RBAC provado **chamando os serviços direto** — como faria um script
+ou a API — e a interface por perfil (o funcionário não tem as telas
+administrativas nem instanciadas).
 
 Os mesmos testes rodam automaticamente no GitHub a cada envio de código
 (aba **Actions**), em Python 3.11 e 3.12.
@@ -288,3 +332,8 @@ Nenhuma linha de regra de negócio precisa mudar.
   registrarem a mesma parcela ao mesmo tempo.
 - Cliente com histórico financeiro não pode ser excluído; a exclusão
   administrativa exige confirmação do CPF.
+- Pagamento nunca é apagado: o estorno é exclusão lógica, com motivo obrigatório,
+  autor, data e hora, e o recebimento original fica no histórico.
+- Todo pagamento recebe um identificador (`PAG-20260809-0001`) que aparece no
+  comprovante e na auditoria.
+- O comprovante sai com o CPF parcialmente mascarado.

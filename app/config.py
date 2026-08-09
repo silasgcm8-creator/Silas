@@ -19,7 +19,9 @@ APP_ORG = "SYS"
 #: Marca gravada na tabela de configurações; usada para validar backups.
 DB_SIGNATURE = "SYS_CREDIARIO"
 #: 2 — índice único de recebimento por parcela (impede pagamento em duplicidade).
-SCHEMA_VERSION = 2
+#: 3 — estorno auditado: código da operação, exclusão lógica do recebimento e
+#:     índice único parcial, para a parcela poder ser paga de novo após estorno.
+SCHEMA_VERSION = 3
 
 
 def base_dir() -> Path:
@@ -45,6 +47,7 @@ class Settings:
     data_dir: Path
     backup_dir: Path
     log_dir: Path
+    receipt_dir: Path
     db_file: Path
     database_url: str
     api_host: str
@@ -54,7 +57,13 @@ class Settings:
     login_lock_minutes: int
 
     def ensure_dirs(self) -> None:
-        for folder in (self.base_dir, self.data_dir, self.backup_dir, self.log_dir):
+        for folder in (
+            self.base_dir,
+            self.data_dir,
+            self.backup_dir,
+            self.log_dir,
+            self.receipt_dir,
+        ):
             folder.mkdir(parents=True, exist_ok=True)
 
 
@@ -79,6 +88,7 @@ def get_settings() -> Settings:
         data_dir=data_dir,
         backup_dir=root / "backups",
         log_dir=root / "logs",
+        receipt_dir=root / "comprovantes",
         db_file=db_file,
         database_url=_database_url(db_file),
         api_host=os.environ.get("SYS_API_HOST", "0.0.0.0"),

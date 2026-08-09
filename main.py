@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 import traceback
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import TracebackType
 
@@ -20,13 +21,18 @@ logger = logging.getLogger("sys_crediario")
 
 
 def configure_logging() -> None:
+    """Log técnico rotativo: nunca cresce sem limite no computador da empresa."""
     settings.ensure_dirs()
+    handler = RotatingFileHandler(
+        settings.log_dir / "sys_crediario.log",
+        maxBytes=2 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.FileHandler(settings.log_dir / "sys_crediario.log", encoding="utf-8")
-        ],
+        handlers=[handler],
     )
 
 

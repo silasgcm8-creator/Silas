@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 from app.config import APP_SLUG, DB_SIGNATURE, settings
 from app.database.connection import current_url, dispose_engine, session_scope
-from app.database.migrations import read_signature, run_migrations
+from app.database.migrations import integrity_report, read_signature, run_migrations
 from app.models.log import LogAction
 from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
@@ -138,6 +138,27 @@ def restore_backup(source: Path | str, actor: SessionUser | None = None) -> Path
             detalhes=f"{origin} (cópia de segurança: {safety.name})",
         )
     return safety
+
+
+def check_database(actor: SessionUser | None = None) -> tuple[bool, list[str]]:
+    """Verificação do banco pedida pelo administrador.
+
+    Só diagnostica: nenhum reparo automático é tentado, porque um reparo
+    malfeito destrói dados. Se houver problema, o caminho seguro é restaurar
+    um backup.
+    """
+    if actor:
+        require(actor.role, Permission.DB_CHECK)
+    ok, mensagens = integrity_report()
+
+    with session_scope() as session:
+        log_service.record(
+            session,
+            LogAction.INTEGRITY_CHECK,
+            actor,
+            detalhes="sem problemas" if ok else "; ".join(mensagens)[:380],
+        )
+    return ok, mensagens
 
 
 def list_backups() -> list[BackupInfo]:

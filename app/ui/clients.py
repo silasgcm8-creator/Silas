@@ -419,6 +419,11 @@ class ClientsPage(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh()
 
+    def focus_search(self) -> None:
+        """Deixa o cursor na pesquisa — é por onde todo atendimento começa."""
+        self.search.setFocus()
+        self.search.selectAll()
+
     def new_client(self) -> None:
         dialog = ClientDialog(self.ctx, None, self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.saved_id:

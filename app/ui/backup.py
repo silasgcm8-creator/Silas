@@ -26,6 +26,7 @@ from app.ui.widgets import (
     page_header,
     primary_button,
     text_item,
+    warn,
 )
 from app.utils.dates import format_datetime_br
 
@@ -64,9 +65,15 @@ class BackupPage(QWidget):
             restore.setToolTip("Somente o administrador pode restaurar um backup.")
         folder = button("Abrir pasta de backups", "list")
         folder.clicked.connect(self._open_folder)
+        check = button("Verificar banco de dados", "check")
+        check.clicked.connect(self._check)
+        check.setEnabled(ctx.can(Permission.DB_CHECK))
+        if not ctx.can(Permission.DB_CHECK):
+            check.setToolTip("Somente o administrador pode verificar o banco.")
         actions.addWidget(create)
         actions.addWidget(restore)
         actions.addWidget(folder)
+        actions.addWidget(check)
         actions.addStretch(1)
         card.body.addLayout(actions)
         layout.addWidget(card)
@@ -150,6 +157,27 @@ class BackupPage(QWidget):
             self,
             "Backup restaurado",
             f"Dados restaurados com sucesso.\nCópia dos dados anteriores: {safety.name}",
+        )
+
+    def _check(self) -> None:
+        """Diagnostica o banco. Nenhum reparo automático é tentado."""
+        try:
+            ok, mensagens = backup_service.check_database(self.ctx.user)
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Verificação", str(exc))
+            return
+
+        texto = "\n".join(f"• {m}" for m in mensagens)
+        if ok:
+            info(self, "Banco de dados verificado", texto)
+            self.ctx.notify("Banco de dados verificado: nenhum problema.")
+            return
+        error(
+            self,
+            "Problema no banco de dados",
+            f"{texto}\n\nNão foi tentado nenhum reparo automático, para não "
+            "arriscar os dados. Crie um backup do estado atual e restaure o "
+            "último backup bom.",
         )
 
     def _open_folder(self) -> None:

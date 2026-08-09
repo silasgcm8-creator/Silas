@@ -15,7 +15,8 @@ class Permission(str, Enum):
     CREDIT_VIEW = "crediario.ver"
     CREDIT_CREATE = "crediario.criar"
     PAYMENT_REGISTER = "pagamento.registrar"
-    PAYMENT_UNDO = "pagamento.desfazer"
+    PAYMENT_UNDO = "pagamento.estornar"
+    RECEIPT_ISSUE = "comprovante.emitir"
     WHATSAPP = "whatsapp.abrir"
     REPORT_VIEW = "relatorio.ver"
     REPORT_FULL = "relatorio.completo"
@@ -23,6 +24,7 @@ class Permission(str, Enum):
     BACKUP_RESTORE = "backup.restaurar"
     USER_MANAGE = "usuario.gerenciar"
     LOG_VIEW = "log.ver"
+    DB_CHECK = "banco.verificar"
     SETTINGS = "configuracao.alterar"
     API_CONTROL = "api.controlar"
 
@@ -35,6 +37,7 @@ STAFF_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.CREDIT_VIEW,
         Permission.CREDIT_CREATE,
         Permission.PAYMENT_REGISTER,
+        Permission.RECEIPT_ISSUE,
         Permission.WHATSAPP,
         Permission.REPORT_VIEW,
         Permission.BACKUP_CREATE,

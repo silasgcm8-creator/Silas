@@ -6,6 +6,7 @@ from app.models.credit import Credit
 from app.models.installment import Installment
 from app.models.log import ActivityLog, LogAction
 from app.models.payment import Payment
+from app.models.reversal import PaymentReversal
 from app.models.setting import Setting
 from app.models.status import InstallmentStatus, Role
 from app.models.user import User
@@ -19,6 +20,7 @@ __all__ = [
     "InstallmentStatus",
     "LogAction",
     "Payment",
+    "PaymentReversal",
     "Role",
     "Setting",
     "User",
