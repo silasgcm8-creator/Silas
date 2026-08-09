@@ -8,15 +8,21 @@ from app.security.authentication import SessionUser, token_store
 from app.security.permissions import Permission, can
 
 
-def current_user(authorization: str = Header(default="")) -> SessionUser:
-    """Extrai o usuário a partir do token Bearer."""
+def bearer_token(authorization: str = Header(default="")) -> str:
+    """Devolve o token cru do cabeçalho — usado também para encerrar a sessão."""
     prefix, _, token = authorization.partition(" ")
+    token = token.strip()
     if prefix.lower() != "bearer" or not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Envie o token no cabeçalho Authorization: Bearer <token>.",
         )
-    user = token_store.resolve(token.strip())
+    return token
+
+
+def current_user(token: str = Depends(bearer_token)) -> SessionUser:
+    """Extrai o usuário a partir do token Bearer."""
+    user = token_store.resolve(token)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -65,6 +65,63 @@ current_session = CurrentSession()
 
 
 @dataclass
+class _Attempts:
+    failures: int = 0
+    locked_until: datetime | None = None
+
+
+@dataclass
+class LoginThrottle:
+    """Bloqueio temporário após seguidas senhas erradas.
+
+    A API local fica exposta no Wi‑Fi da empresa, então sem esse limite alguém
+    na mesma rede poderia testar senhas indefinidamente. O bloqueio é por
+    usuário, temporário e se desfaz sozinho — nenhum funcionário fica trancado
+    fora do sistema de forma permanente.
+    """
+
+    max_attempts: int = 5
+    lock_minutes: int = 10
+    _attempts: dict[str, _Attempts] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def locked_for(self, key: str) -> int:
+        """Minutos que ainda faltam para liberar; 0 quando está liberado."""
+        with self._lock:
+            entry = self._attempts.get(key)
+            if entry is None or entry.locked_until is None:
+                return 0
+            remaining = entry.locked_until - datetime.now()
+            if remaining.total_seconds() <= 0:
+                self._attempts.pop(key, None)
+                return 0
+            return max(1, int(remaining.total_seconds() // 60) + 1)
+
+    def ensure_allowed(self, key: str) -> None:
+        minutes = self.locked_for(key)
+        if minutes:
+            raise AuthenticationError(
+                "Muitas tentativas de senha incorreta. "
+                f"Tente novamente em {minutes} minuto(s)."
+            )
+
+    def register_failure(self, key: str) -> None:
+        with self._lock:
+            entry = self._attempts.setdefault(key, _Attempts())
+            entry.failures += 1
+            if entry.failures >= self.max_attempts:
+                entry.locked_until = datetime.now() + timedelta(minutes=self.lock_minutes)
+
+    def register_success(self, key: str) -> None:
+        with self._lock:
+            self._attempts.pop(key, None)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._attempts.clear()
+
+
+@dataclass
 class _Token:
     user: SessionUser
     expires_at: datetime
@@ -106,3 +163,6 @@ class TokenStore:
 
 
 token_store = TokenStore(ttl_minutes=settings.session_timeout_minutes)
+login_throttle = LoginThrottle(
+    max_attempts=settings.login_max_attempts, lock_minutes=settings.login_lock_minutes
+)

@@ -10,7 +10,11 @@ from app.models.log import LogAction
 from app.models.status import Role
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
-from app.security.authentication import AuthenticationError, SessionUser
+from app.security.authentication import (
+    AuthenticationError,
+    SessionUser,
+    login_throttle,
+)
 from app.security.password import hash_password, needs_rehash, verify_password
 from app.security.permissions import Permission, require
 from app.services import log_service
@@ -90,16 +94,21 @@ def _build_user(
 
 def authenticate(usuario: str, senha: str) -> SessionUser:
     username = (usuario or "").strip().lower()
+    login_throttle.ensure_allowed(username)
     with session_scope() as session:
         repo = UserRepository(session)
         user = repo.get_by_username(username)
         if user is None or not verify_password(senha, user.senha_hash):
+            login_throttle.register_failure(username)
             log_service.record(
                 session, LogAction.LOGIN_FAILED, None, detalhes=f"usuário: {username}"
             )
             raise AuthenticationError("Usuário ou senha incorretos.")
         if not user.ativo:
+            # A senha estava certa: não conta como tentativa de invasão.
             raise AuthenticationError("Usuário desativado. Procure o administrador.")
+
+        login_throttle.register_success(username)
 
         if needs_rehash(user.senha_hash):
             user.senha_hash = hash_password(senha)

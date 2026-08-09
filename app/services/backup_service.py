@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 from app.config import APP_SLUG, DB_SIGNATURE, settings
 from app.database.connection import current_url, dispose_engine, session_scope
-from app.database.migrations import read_signature
+from app.database.migrations import read_signature, run_migrations
 from app.models.log import LogAction
 from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
@@ -125,6 +125,10 @@ def restore_backup(source: Path | str, actor: SessionUser | None = None) -> Path
         if extra.exists():
             extra.unlink()
     shutil.copy2(origin, target)
+
+    # Um backup pode ter sido gerado por uma versão anterior do programa, então
+    # o banco restaurado passa pelas migrações antes de voltar a ser usado.
+    run_migrations()
 
     with session_scope() as session:
         log_service.record(

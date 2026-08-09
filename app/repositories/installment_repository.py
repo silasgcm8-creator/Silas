@@ -16,6 +16,21 @@ from app.repositories.base_repository import BaseRepository
 class InstallmentRepository(BaseRepository[Installment]):
     model = Installment
 
+    def settle(self, installment_id: int, payment_date: date) -> bool:
+        """Marca a parcela como paga somente se ela ainda estiver aberta.
+
+        Devolve `False` quando outra origem (celular ou outro caixa) já baixou a
+        parcela, o que evita dois recebimentos para a mesma parcela.
+        """
+        result = self.session.execute(
+            sa.update(Installment)
+            .where(Installment.id == installment_id, Installment.pago.is_(False))
+            .values(pago=True, pago_em=payment_date)
+        )
+        if result.rowcount:
+            self.session.expire_all()
+        return bool(result.rowcount)
+
     def list_by_credit(self, credit_id: int) -> Sequence[Installment]:
         stmt = (
             sa.select(Installment)

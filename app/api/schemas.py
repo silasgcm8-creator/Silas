@@ -13,11 +13,16 @@ class LoginIn(BaseModel):
     senha: str = Field(min_length=1, max_length=128)
 
 
-class TokenOut(BaseModel):
-    token: str
+class IdentityOut(BaseModel):
+    """Quem está autenticado, sem devolver token."""
+
     usuario: str
     nome: str
     papel: str
+
+
+class TokenOut(IdentityOut):
+    token: str
 
 
 class ClientOut(BaseModel):

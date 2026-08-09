@@ -68,6 +68,45 @@ def test_pagar_duas_vezes_e_bloqueado(admin, crediario):
         payment_service.mark_as_paid(parcela.id, admin)
 
 
+def test_banco_recusa_dois_recebimentos_da_mesma_parcela(admin, crediario):
+    """Rede de segurança contra balcão e celular baixando a mesma parcela."""
+    import sqlalchemy as sa
+
+    from app.database.connection import session_scope
+    from app.models.payment import Payment
+
+    parcela = credit_service.get_detail(crediario).installments[0]
+    payment_service.mark_as_paid(parcela.id, admin)
+
+    with pytest.raises(sa.exc.IntegrityError):
+        with session_scope() as session:
+            session.add(
+                Payment(
+                    parcela_id=parcela.id,
+                    crediario_id=crediario,
+                    cliente_id=1,
+                    valor=Decimal("200.00"),
+                    data_pagamento=date.today(),
+                    usuario_nome="duplicado",
+                )
+            )
+
+    hoje = date.today()
+    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+
+
+def test_baixa_condicional_nao_reabre_parcela_ja_paga(admin, crediario):
+    """`settle` só vence a disputa uma vez — a segunda origem recebe False."""
+    from app.database.connection import session_scope
+    from app.repositories.installment_repository import InstallmentRepository
+
+    parcela = credit_service.get_detail(crediario).installments[0]
+    with session_scope() as session:
+        repo = InstallmentRepository(session)
+        assert repo.settle(parcela.id, date.today()) is True
+        assert repo.settle(parcela.id, date.today()) is False
+
+
 def test_desfazer_pagamento_volta_para_atrasado(admin, crediario):
     parcela = credit_service.get_detail(crediario).installments[0]
     payment_service.mark_as_paid(parcela.id, admin)

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import logging
+
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.config import APP_VERSION, DB_SIGNATURE, SCHEMA_VERSION, settings
 from app.database.connection import get_engine, session_scope
 from app.models import Base  # noqa: F401  (importa todos os modelos)
+from app.models.payment import UNIQUE_PAYMENT_INDEX
 from app.models.setting import Setting
+
+LOGGER = logging.getLogger("sys_crediario")
 
 KEY_SIGNATURE = "app.signature"
 KEY_SCHEMA = "app.schema_version"
@@ -45,8 +50,45 @@ def run_migrations() -> None:
     _apply_incremental_migrations()
 
 
+def _deduplicate_payments() -> None:
+    """Remove recebimentos repetidos da mesma parcela, mantendo o primeiro.
+
+    Bancos criados antes do índice único podem ter dois recebimentos para uma
+    única parcela (balcão e celular registrando ao mesmo tempo), o que inflava o
+    caixa. A limpeza precisa vir antes da criação do índice, senão ele falha.
+    """
+    engine = get_engine()
+    with engine.begin() as connection:
+        removed = connection.execute(
+            sa.text(
+                "DELETE FROM pagamentos WHERE id NOT IN "
+                "(SELECT MIN(id) FROM pagamentos GROUP BY parcela_id)"
+            )
+        ).rowcount
+    if removed:
+        LOGGER.warning(
+            "Migração: %s recebimento(s) duplicado(s) removido(s) do caixa.", removed
+        )
+
+
+def _create_unique_payment_index() -> None:
+    """Cria o índice único de pagamentos em bancos que ainda não o possuem."""
+    engine = get_engine()
+    existing = {index["name"] for index in sa.inspect(engine).get_indexes("pagamentos")}
+    if UNIQUE_PAYMENT_INDEX in existing:
+        return
+    _deduplicate_payments()
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                f"CREATE UNIQUE INDEX {UNIQUE_PAYMENT_INDEX} ON pagamentos (parcela_id)"
+            )
+        )
+
+
 def _apply_incremental_migrations() -> None:
-    """Espaço para evoluções futuras de esquema (ALTER TABLE controlado)."""
+    """Evoluções de esquema aplicadas em bancos já existentes."""
+    _create_unique_payment_index()
     with session_scope() as session:
         row = session.get(Setting, KEY_SCHEMA)
         current = int(row.valor) if row and row.valor.isdigit() else 0
