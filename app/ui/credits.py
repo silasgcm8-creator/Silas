@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.services import (
+    charge_service,
     client_service,
     credit_service,
     payment_service,
@@ -258,6 +259,13 @@ class CreditDetailDialog(QDialog):
         close = button("Fechar", ghost=True)
         close.clicked.connect(self.accept)
 
+        self.charge_button = button("Documento de cobrança", "receipt")
+        self.charge_button.setToolTip(
+            "Documento da parcela selecionada, para pagamento no caixa da loja"
+        )
+        self.charge_button.clicked.connect(self._issue_charge)
+        self.charge_button.setEnabled(ctx.can(Permission.CHARGE_ISSUE))
+
         self.slip_button = button("Carnê / Pix", "receipt")
         self.slip_button.setToolTip(
             "Gera o demonstrativo do parcelamento com área de Pix e código de barras"
@@ -267,6 +275,7 @@ class CreditDetailDialog(QDialog):
 
         actions.addWidget(self.pay_button)
         actions.addWidget(self.undo_button)
+        actions.addWidget(self.charge_button)
         actions.addWidget(self.slip_button)
         actions.addWidget(whats)
         actions.addStretch(1)
@@ -375,6 +384,27 @@ class CreditDetailDialog(QDialog):
             return
         self.ctx.notify("Pagamento estornado e registrado na auditoria.")
         self.refresh()
+
+    def _issue_charge(self) -> None:
+        """Documento de cobrança da parcela escolhida (pagamento na loja)."""
+        installment_id = self._selected_installment()
+        if installment_id is None:
+            return
+        try:
+            caminho, dados = charge_service.issue(installment_id, actor=self.ctx.user)
+        except (BusinessError, NotFoundError, PermissionDenied) as exc:
+            warn(self, "Documento de cobrança", str(exc))
+            return
+
+        self.ctx.notify(f"Cobrança {dados.codigo} gerada.")
+        if confirm(
+            self,
+            "Documento de cobrança gerado",
+            f"Parcela {dados.parcela} — {format_brl(dados.valor)}\n"
+            f"Código da cobrança: {dados.codigo}\n\n"
+            f"Arquivo salvo em:\n{caminho}\n\nAbrir agora para imprimir?",
+        ):
+            open_file(caminho)
 
     def _issue_slip(self) -> None:
         """Emite o carnê do parcelamento e oferece abrir para impressão."""

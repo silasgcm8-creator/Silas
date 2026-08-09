@@ -97,7 +97,7 @@ def test_situacao_de_cada_parcela_no_carne(admin, crediario):
 
 
 def test_pix_do_carne_usa_o_saldo_devedor(admin, crediario):
-    slip_service.save_company_settings("Ótica São José", CHAVE, "Goiânia", admin)
+    slip_service.save_pix_settings(CHAVE, "Goiânia", admin)
     parcela = credit_service.get_detail(crediario).installments[0]
     payment_service.mark_as_paid(parcela.id, admin)
 
@@ -120,7 +120,7 @@ def test_carne_sem_pix_cadastrado_ainda_e_emitido(admin, crediario, tmp_path):
 
 
 def test_pdf_gerado_e_completo(admin, crediario, tmp_path):
-    slip_service.save_company_settings("Ótica São José", CHAVE, "Goiânia", admin)
+    slip_service.save_pix_settings(CHAVE, "Goiânia", admin)
     caminho, dados = slip_service.issue(crediario, tmp_path / "carne.pdf", actor=admin)
 
     conteudo = caminho.read_bytes()
@@ -133,7 +133,7 @@ def test_pdf_gerado_e_completo(admin, crediario, tmp_path):
 def test_pdf_com_pix_e_maior_que_sem_pix(admin, crediario, tmp_path):
     """Confirma que o QR Code realmente foi desenhado no documento."""
     sem, _ = slip_service.issue(crediario, tmp_path / "a.pdf", actor=admin)
-    slip_service.save_company_settings("Ótica São José", CHAVE, "Goiânia", admin)
+    slip_service.save_pix_settings(CHAVE, "Goiânia", admin)
     com, _ = slip_service.issue(crediario, tmp_path / "b.pdf", actor=admin)
 
     assert com.stat().st_size > sem.stat().st_size
@@ -163,11 +163,6 @@ def test_chave_pix_invalida_e_recusada(admin):
             slip_service.save_pix_settings(ruim, "Goiânia", admin)
 
 
-def test_nome_da_empresa_e_obrigatorio(admin):
-    with pytest.raises(BusinessError):
-        slip_service.save_company_settings("   ", CHAVE, "Goiânia", admin)
-
-
 def test_funcionario_emite_carne_mas_nao_configura(admin, crediario, tmp_path):
     user_service.create_user("Ana Vendas", "ana", "senha123", Role.STAFF, admin)
     funcionario = user_service.authenticate("ana", "senha123")
@@ -179,7 +174,7 @@ def test_funcionario_emite_carne_mas_nao_configura(admin, crediario, tmp_path):
     assert caminho.exists()
 
     with pytest.raises(PermissionDenied):
-        slip_service.save_company_settings("Outra", CHAVE, "Cidade", funcionario)
+        slip_service.save_pix_settings(CHAVE, "Cidade", funcionario)
 
 
 def test_emissao_do_carne_fica_na_auditoria(admin, crediario, tmp_path):
@@ -192,24 +187,16 @@ def test_emissao_do_carne_fica_na_auditoria(admin, crediario, tmp_path):
         assert LogAction.SLIP_ISSUED in [e.acao for e in log_service.latest(session)]
 
 
-def test_nome_da_empresa_padrao_e_visao(admin, crediario):
-    """Instalação nova já sai com o nome da empresa nos documentos."""
+def test_carne_sai_com_o_nome_da_loja(admin, crediario):
     from app.config import COMPANY_DEFAULT
 
-    assert COMPANY_DEFAULT == "VISÃO"
-    nome, _, _ = slip_service.company_settings()
-    assert nome == "VISÃO"
-    assert slip_service.build_slip(crediario).empresa == "VISÃO"
+    assert COMPANY_DEFAULT == "Ótica Visão"
+    assert slip_service.build_slip(crediario).empresa == "ÓTICA VISÃO"
 
 
-def test_nome_da_empresa_sai_no_comprovante(admin, crediario):
+def test_comprovante_sai_com_o_nome_da_loja(admin, crediario):
     from app.services import receipt_service
 
     parcela = credit_service.get_detail(crediario).installments[0]
     pagamento = payment_service.mark_as_paid(parcela.id, admin)
-    assert receipt_service.build_receipt(pagamento).empresa == "VISÃO"
-
-
-def test_nome_da_empresa_pode_ser_alterado(admin, crediario):
-    slip_service.save_company_settings("VISÃO ÓTICA CENTRO", CHAVE, "Goiânia", admin)
-    assert slip_service.build_slip(crediario).empresa == "VISÃO ÓTICA CENTRO"
+    assert receipt_service.build_receipt(pagamento).empresa == "ÓTICA VISÃO"

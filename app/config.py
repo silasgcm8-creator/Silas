@@ -14,7 +14,7 @@ from pathlib import Path
 APP_NAME = "SYS CREDIÁRIO"
 #: Nome da empresa impresso nos comprovantes e carnês. É só o padrão inicial:
 #: o administrador altera em Configurações → Empresa e Pix.
-COMPANY_DEFAULT = "VISÃO"
+COMPANY_DEFAULT = "Ótica Visão"
 APP_SLUG = "SYS_Crediario"
 APP_VERSION = "1.0.0"
 APP_ORG = "SYS"

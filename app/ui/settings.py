@@ -24,7 +24,13 @@ from app.config import APP_NAME, APP_VERSION, settings
 from app.models.status import Role
 from app.security.password import algorithm
 from app.security.permissions import Permission, PermissionDenied
-from app.services import backup_service, log_service, slip_service, user_service
+from app.services import (
+    backup_service,
+    company_service,
+    log_service,
+    slip_service,
+    user_service,
+)
 from app.services.errors import BusinessError, ValidationError
 from app.ui.context import AppContext
 from app.ui.theme import GREEN, RED, TEXT_MUTED
@@ -43,6 +49,7 @@ from app.ui.widgets import (
     warn,
 )
 from app.utils.dates import format_datetime_br
+from app.utils.validators import format_phone
 from app.database.connection import session_scope
 
 
@@ -161,7 +168,7 @@ class SettingsPage(QWidget):
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._users_tab(), "Usuários")
-        self.tabs.addTab(self._company_tab(), "Empresa e Pix")
+        self.tabs.addTab(self._company_tab(), "Identidade e Pix")
         self.tabs.addTab(self._backup_tab(), "Backup automático")
         self.tabs.addTab(self._mobile_tab(), "Acesso pelo celular")
         self.tabs.addTab(self._logs_tab(), "Log de atividades")
@@ -174,32 +181,46 @@ class SettingsPage(QWidget):
         self.tabs.setTabEnabled(2, ctx.can(Permission.SETTINGS))
         self.tabs.setTabEnabled(4, ctx.can(Permission.LOG_VIEW))
 
-    # ----- empresa e Pix ---------------------------------------------
+    # ----- identidade e recebimento -----------------------------------
     def _company_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setSpacing(12)
 
+        aviso = QLabel(
+            f"Os documentos usam somente o nome <b>{company_service.profile().titulo}</b>. "
+            "Não há cadastro de razão social, CNPJ, endereço ou telefone."
+        )
+        aviso.setWordWrap(True)
+        layout.addWidget(aviso)
+
         form = QFormLayout()
         form.setSpacing(10)
 
-        self.company_name = QLineEdit()
-        self.company_name.setMinimumHeight(38)
-        self.company_name.setPlaceholderText("Nome que aparece nos comprovantes e carnês")
-        form.addRow(field_label("NOME DA EMPRESA"), self.company_name)
+        logo_linha = QHBoxLayout()
+        self.logo_label = QLabel("Nenhum logotipo cadastrado")
+        self.logo_label.setObjectName("Muted")
+        escolher_logo = button("Escolher logotipo", "upload")
+        escolher_logo.clicked.connect(self._choose_logo)
+        remover_logo = button("Remover", "logout", ghost=True)
+        remover_logo.clicked.connect(self._remove_logo)
+        logo_linha.addWidget(self.logo_label, 1)
+        logo_linha.addWidget(escolher_logo)
+        logo_linha.addWidget(remover_logo)
+        form.addRow(field_label("LOGOTIPO (OPCIONAL)"), logo_linha)
 
         self.pix_key = QLineEdit()
         self.pix_key.setMinimumHeight(38)
         self.pix_key.setPlaceholderText("CPF/CNPJ, e-mail, telefone ou chave aleatória")
-        form.addRow(field_label("CHAVE PIX"), self.pix_key)
+        form.addRow(field_label("CHAVE PIX DO CARNÊ"), self.pix_key)
 
         self.pix_city = QLineEdit()
         self.pix_city.setMinimumHeight(38)
-        self.pix_city.setPlaceholderText("Cidade da empresa")
-        form.addRow(field_label("CIDADE"), self.pix_city)
+        self.pix_city.setPlaceholderText("Cidade usada no QR Code do Pix")
+        form.addRow(field_label("CIDADE DO PIX"), self.pix_city)
         layout.addLayout(form)
 
-        salvar = primary_button("Salvar dados da empresa", "check")
+        salvar = primary_button("Salvar", "check")
         salvar.clicked.connect(self._save_company)
         linha = QHBoxLayout()
         linha.addWidget(salvar)
@@ -216,35 +237,56 @@ class SettingsPage(QWidget):
         return page
 
     def _load_company(self) -> None:
-        nome, chave, cidade = slip_service.company_settings()
-        self.company_name.setText(nome)
+        perfil = company_service.profile()
+        self.logo_label.setText(
+            f"Logotipo: {perfil.logo.name}" if perfil.tem_logo
+            else "Nenhum logotipo cadastrado"
+        )
+        chave, cidade = slip_service.pix_settings()
         self.pix_key.setText(chave)
         self.pix_city.setText(cidade)
-        if chave:
-            self.company_hint.setText(
-                "Com a chave cadastrada, o carnê de pagamento sai com QR Code e "
-                "copia e cola do Pix da empresa. O valor levado é o saldo devedor "
-                "do crediário."
-            )
-        else:
-            self.company_hint.setText(
-                "Sem chave Pix, o carnê é emitido com a área do Pix reservada em "
-                "branco. O sistema nunca inventa dados bancários."
-            )
+        self.company_hint.setText(
+            "Com a chave Pix cadastrada, o carnê traz o QR Code e o copia e cola. "
+            "Sem chave, a área do Pix fica reservada em branco — o sistema nunca "
+            "inventa dados bancários."
+        )
+
+    def _choose_logo(self) -> None:
+        caminho, _ = QFileDialog.getOpenFileName(
+            self,
+            "Escolher logotipo",
+            str(settings.base_dir),
+            "Imagens (*.png *.jpg *.jpeg *.gif)",
+        )
+        if not caminho:
+            return
+        try:
+            company_service.save_logo(caminho, self.ctx.user)
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Logotipo", str(exc))
+            return
+        self._load_company()
+        self.ctx.notify("Logotipo cadastrado.")
+
+    def _remove_logo(self) -> None:
+        try:
+            company_service.remove_logo(self.ctx.user)
+        except (BusinessError, PermissionDenied) as exc:
+            warn(self, "Logotipo", str(exc))
+            return
+        self._load_company()
+        self.ctx.notify("Logotipo removido dos documentos.")
 
     def _save_company(self) -> None:
         try:
-            slip_service.save_company_settings(
-                self.company_name.text(),
-                self.pix_key.text(),
-                self.pix_city.text(),
-                self.ctx.user,
+            slip_service.save_pix_settings(
+                self.pix_key.text(), self.pix_city.text(), self.ctx.user
             )
         except (BusinessError, PermissionDenied) as exc:
-            warn(self, "Empresa e Pix", str(exc))
+            warn(self, "Recebimento", str(exc))
             return
         self._load_company()
-        self.ctx.notify("Dados da empresa salvos.")
+        self.ctx.notify("Dados salvos.")
 
     # ----- backup automático ----------------------------------------
     def _backup_tab(self) -> QWidget:

@@ -18,6 +18,7 @@ class Permission(str, Enum):
     PAYMENT_UNDO = "pagamento.estornar"
     RECEIPT_ISSUE = "comprovante.emitir"
     SLIP_ISSUE = "carne.emitir"
+    CHARGE_ISSUE = "cobranca.emitir"
     WHATSAPP = "whatsapp.abrir"
     REPORT_VIEW = "relatorio.ver"
     REPORT_FULL = "relatorio.completo"
@@ -40,6 +41,7 @@ STAFF_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.PAYMENT_REGISTER,
         Permission.RECEIPT_ISSUE,
         Permission.SLIP_ISSUE,
+        Permission.CHARGE_ISSUE,
         Permission.WHATSAPP,
         Permission.REPORT_VIEW,
         Permission.BACKUP_CREATE,

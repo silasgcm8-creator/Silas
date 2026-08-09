@@ -236,6 +236,24 @@ def get_detail(credit_id: int, reference: date | None = None) -> CreditDetail:
         )
 
 
+def find_installment(installment_id: int) -> tuple[CreditDetail, InstallmentRow]:
+    """Localiza a parcela e o crediário a que ela pertence.
+
+    Usado pelos documentos que tratam de uma parcela só (cobrança avulsa).
+    """
+    with session_scope() as session:
+        installment = InstallmentRepository(session).get(installment_id)
+        if installment is None:
+            raise NotFoundError("Parcela não encontrada.")
+        credit_id = installment.crediario_id
+
+    detail = get_detail(credit_id)
+    for item in detail.installments:
+        if item.id == installment_id:
+            return detail, item
+    raise NotFoundError("Parcela não encontrada.")
+
+
 def preview_installments(
     valor_total: object, entrada: object, parcelas: object, primeiro_vencimento: date
 ) -> list[tuple[int, date, Decimal]]:

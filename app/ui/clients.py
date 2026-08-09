@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.security.permissions import Permission, PermissionDenied
-from app.services import client_service, credit_service
+from app.services import charge_service, client_service, credit_service
 from app.services.errors import BusinessError, NotFoundError, ValidationError
 from app.ui import icons
 from app.ui.context import AppContext
@@ -525,11 +525,25 @@ class ClientsPage(QWidget):
         self.open_client(client_id)
 
     def _open_exact_cpf(self) -> None:
-        """Enter em um CPF existente abre a ficha direto."""
+        """Enter abre direto: aceita CPF cadastrado ou código de cobrança.
+
+        O código de cobrança é o conteúdo do QR interno do documento, então o
+        atendente pode digitá-lo (ou ler com leitor) na mesma busca.
+        """
         term = self.search.text().strip()
+
+        cobranca = charge_service.find_by_code(term)
+        if cobranca is not None:
+            self.open_credit(cobranca.crediario_id)
+            return
+
         client = client_service.find_by_cpf(term)
         if client is not None:
             self.open_client(client.id)
+
+    def open_credit(self, credit_id: int) -> None:
+        CreditDetailDialog(self.ctx, credit_id, self).exec()
+        self.refresh()
 
     def open_client(self, client_id: int) -> None:
         ClientDetailDialog(self.ctx, client_id, self).exec()

@@ -17,13 +17,12 @@ from pathlib import Path
 
 from app.config import APP_NAME, APP_VERSION, COMPANY_DEFAULT, settings
 from app.database.connection import session_scope
-from app.database.migrations import KEY_COMPANY
 from app.models.log import LogAction
-from app.models.setting import Setting
 from app.repositories.payment_repository import PaymentRepository
 from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
-from app.services import log_service
+from app.services import company_service, log_service
+from app.services.document_header import draw_header
 from app.services.errors import BusinessError, NotFoundError
 from app.utils.dates import format_br, format_datetime_br
 from app.utils.money import format_brl
@@ -71,9 +70,7 @@ def mask_cpf(cpf: str) -> str:
 
 
 def _company_name() -> str:
-    with session_scope() as session:
-        row = session.get(Setting, KEY_COMPANY)
-        return (row.valor if row else "") or COMPANY_DEFAULT
+    return company_service.profile().titulo
 
 
 def build_receipt(payment_id: int) -> ReceiptData:
@@ -116,7 +113,7 @@ def _lines(data: ReceiptData) -> list[tuple[str, str]]:
         ("Registrado em", format_datetime_br(data.registrado_em)),
         ("Identificador", data.codigo),
         ("Funcionário", data.funcionario),
-        ("Situação", data.situacao),
+        ("Status", data.situacao),
     ]
 
 
@@ -148,29 +145,25 @@ def render_pdf(data: ReceiptData, destination: Path | str | None = None, layout:
         margem = 20 * mm
     else:
         largura = 80 * mm
-        altura = (120 + 6 * len(_lines(data))) * mm
+        altura = (128 + 6 * len(_lines(data))) * mm
         margem = 6 * mm
 
     pdf = canvas.Canvas(str(target), pagesize=(largura, altura))
     pdf.setTitle(f"Comprovante {data.codigo}")
     pdf.setAuthor(data.empresa)
 
-    y = altura - margem
-    titulo = 15 if layout == A4 else 11
     corpo = 10.5 if layout == A4 else 8
     passo = (7 if layout == A4 else 5) * mm
 
-    pdf.setFont("Helvetica-Bold", titulo)
-    pdf.drawString(margem, y, data.empresa[:48])
-    y -= passo
-    pdf.setFont("Helvetica-Bold", titulo - 2)
-    pdf.drawString(margem, y, "COMPROVANTE DE PAGAMENTO")
-    y -= passo * 0.7
-    pdf.setFont("Helvetica", corpo - 1.5)
-    pdf.drawString(margem, y, f"{APP_NAME} {APP_VERSION}")
-    y -= passo * 0.6
-    pdf.line(margem, y, largura - margem, y)
-    y -= passo
+    y = draw_header(
+        pdf,
+        company_service.profile(),
+        "COMPROVANTE DE PAGAMENTO",
+        largura=largura,
+        margem=margem,
+        topo=altura - margem,
+        compacto=layout != A4,
+    )
 
     for rotulo, valor in _lines(data):
         pdf.setFont("Helvetica", corpo)

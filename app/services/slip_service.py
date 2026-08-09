@@ -25,12 +25,12 @@ from pathlib import Path
 
 from app.config import APP_NAME, APP_VERSION, COMPANY_DEFAULT, settings
 from app.database.connection import session_scope
-from app.database.migrations import KEY_COMPANY
 from app.models.log import LogAction
 from app.models.setting import Setting
 from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
-from app.services import credit_service, log_service
+from app.services import company_service, credit_service, log_service
+from app.services.document_header import draw_header
 from app.services.errors import BusinessError
 from app.services.receipt_service import mask_cpf
 from app.utils.dates import format_br
@@ -93,53 +93,25 @@ def _setting(key: str, default: str = "") -> str:
         return (row.valor if row else "") or default
 
 
-def company_settings() -> tuple[str, str, str]:
-    """Nome da empresa, chave Pix e cidade — o que sai impresso nos documentos."""
-    return _setting(KEY_COMPANY, COMPANY_DEFAULT), _setting(KEY_PIX), _setting(KEY_PIX_CITY)
-
-
 def pix_settings() -> tuple[str, str]:
-    """Chave Pix e cidade cadastradas pela empresa."""
+    """Chave Pix e cidade cadastradas para recebimento."""
     return _setting(KEY_PIX), _setting(KEY_PIX_CITY)
-
-
-def save_company_settings(
-    nome: str, chave: str, cidade: str, actor: SessionUser | None = None
-) -> tuple[str, str, str]:
-    """Grava nome da empresa e dados do Pix (só administrador)."""
-    if actor:
-        require(actor.role, Permission.SETTINGS)
-    nome = " ".join((nome or "").split())
-    if not nome:
-        raise BusinessError("Informe o nome da empresa que sai nos documentos.")
-
-    chave, cidade = save_pix_settings(chave, cidade, actor)
-    with session_scope() as session:
-        row = session.get(Setting, KEY_COMPANY)
-        if row is None:
-            session.add(Setting(chave=KEY_COMPANY, valor=nome[:120]))
-        else:
-            row.valor = nome[:120]
-    return nome[:120], chave, cidade
 
 
 def save_pix_settings(
     chave: str, cidade: str, actor: SessionUser | None = None
 ) -> tuple[str, str]:
-    """Grava a chave Pix da empresa (só administrador)."""
+    """Grava a chave Pix usada no carnê (só administrador)."""
     if actor:
         require(actor.role, Permission.SETTINGS)
     chave = (chave or "").strip()
     cidade = (cidade or "").strip()
 
-    if chave:
-        # Só validamos o formato mínimo: a chave é da empresa e quem confere de
-        # verdade é o banco dela na hora do pagamento.
-        if len(chave) < 5 or " " in chave:
-            raise BusinessError(
-                "Chave Pix inválida. Use CPF/CNPJ, e-mail, telefone ou chave "
-                "aleatória, sem espaços."
-            )
+    if chave and (len(chave) < 5 or " " in chave):
+        raise BusinessError(
+            "Chave Pix inválida. Use CPF/CNPJ, e-mail, telefone ou chave "
+            "aleatória, sem espaços."
+        )
 
     with session_scope() as session:
         for key, valor in ((KEY_PIX, chave), (KEY_PIX_CITY, cidade)):
@@ -154,7 +126,7 @@ def save_pix_settings(
 def build_slip(credit_id: int, include_pix_amount: bool = True) -> SlipData:
     """Reúne os dados do carnê a partir do crediário."""
     detail = credit_service.get_detail(credit_id)
-    empresa = _setting(KEY_COMPANY, COMPANY_DEFAULT)
+    empresa = company_service.profile().titulo
     chave, cidade = pix_settings()
     documento = f"CAR-{credit_id:06d}"
 
@@ -225,24 +197,21 @@ def render_pdf(data: SlipData, destination: Path | str | None = None) -> Path:
     pdf.setTitle(f"Carnê {data.documento}")
     pdf.setAuthor(data.empresa)
 
-    y = altura - margem
-
-    # ---- cabeçalho -------------------------------------------------
-    pdf.setFont("Helvetica-Bold", 15)
-    pdf.drawString(margem, y, data.empresa[:48])
+    y = draw_header(
+        pdf,
+        company_service.profile(),
+        "CARNÊ DE PAGAMENTO",
+        "DEMONSTRATIVO DO PARCELAMENTO",
+        largura=largura,
+        margem=margem,
+        topo=altura - margem,
+    )
     pdf.setFont("Helvetica", 8.5)
-    pdf.drawRightString(largura - margem, y, f"Documento {data.documento}")
-    y -= 7 * mm
-    pdf.setFont("Helvetica-Bold", 13)
-    pdf.drawString(margem, y, "CARNÊ DE PAGAMENTO")
-    pdf.setFont("Helvetica", 8.5)
-    pdf.drawRightString(largura - margem, y, f"Emitido em {format_br(data.emitido_em)}")
-    y -= 5 * mm
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(margem, y, "Demonstrativo do parcelamento")
-    y -= 4 * mm
-    pdf.setLineWidth(1)
-    pdf.line(margem, y, largura - margem, y)
+    pdf.drawRightString(
+        largura - margem,
+        y,
+        f"Documento {data.documento}   |   Emitido em {format_br(data.emitido_em)}",
+    )
     y -= 7 * mm
 
     # ---- cliente e crediário ---------------------------------------
