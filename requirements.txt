@@ -1,0 +1,30 @@
+# SYS CREDIÁRIO - dependências
+# Instale com:  pip install -r requirements.txt
+
+# Interface desktop (janela própria do Windows)
+PySide6==6.7.2
+
+# Banco de dados / ORM
+SQLAlchemy==2.0.32
+
+# Driver PostgreSQL (opcional - só para uso futuro em servidor)
+# psycopg[binary]==3.2.1
+
+# API local para acesso pelo celular na rede
+fastapi==0.112.2
+uvicorn==0.30.6
+pydantic==2.8.2
+
+# Hash de senha (Argon2 preferencial, bcrypt como alternativa)
+argon2-cffi==23.1.0
+bcrypt==4.2.0
+
+# Exportações opcionais (Excel e PDF). CSV já funciona sem nada instalado.
+openpyxl==3.1.5
+reportlab==4.2.2
+
+# Testes
+pytest==8.3.2
+
+# Geração do executável
+pyinstaller==6.10.0

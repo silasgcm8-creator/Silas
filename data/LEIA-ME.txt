@@ -1,0 +1,18 @@
+SYS CREDIÁRIO — pasta de dados
+
+Por padrão, o banco de dados fica na pasta pessoal do usuário do Windows:
+
+    C:\Users\SEU_USUARIO\SYS_Crediario\data\sys_crediario.db
+
+Essa pasta é permanente: atualizar o programa ou trocar o SYS_Crediario.exe
+NÃO apaga os dados.
+
+MODO PORTÁTIL (opcional)
+------------------------
+Para guardar tudo dentro da própria pasta do programa (pen drive, por exemplo),
+defina a variável de ambiente SYS_HOME antes de abrir o sistema:
+
+    set SYS_HOME=C:\SYS_Crediario
+    python main.py
+
+Nesse caso, o banco passa a ficar em C:\SYS_Crediario\data\sys_crediario.db
