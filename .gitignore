@@ -4,8 +4,10 @@ __pycache__/
 venv/
 build/
 dist/
-*.spec
 *.db
 *.db-wal
 *.db-shm
 .pytest_cache/
+
+# Relatorio da verificacao gerado localmente
+verificacao.txt

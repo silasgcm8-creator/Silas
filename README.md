@@ -273,22 +273,68 @@ para *EM ABERTO* ou *ATRASADO* conforme o vencimento e pode ser paga de novo.
 
 ## Passo 8 — Gerar o executável (.exe)
 
-Com as dependências já instaladas, dê **dois cliques** em:
+Com o Python instalado, dê **dois cliques** em:
 
 ```
 build_exe.bat
 ```
 
-Ao final, o programa fica em:
+O script cuida de tudo: cria um ambiente isolado (`.venv`), instala as
+dependências, compila com o PyInstaller e — o mais importante — **verifica o
+executável no final**. Se algo faltar no empacotamento, ele avisa em vez de
+entregar um programa que quebra no balcão.
+
+Ao terminar, o programa fica em:
 
 ```
 C:\SYS_Crediario\dist\SYS_Crediario.exe
 ```
 
-O executável abre direto na interface, sem janela preta de terminal.
-Para colocar um ícone na Área de Trabalho, dê dois cliques em `criar_atalho.bat`.
+Um único arquivo, com ícone próprio, que abre direto na interface — sem janela
+preta de terminal e sem precisar de Python instalado na máquina que vai usar.
 
----
+Depois, dois cliques em `criar_atalho.bat` para colocar o ícone na Área de
+Trabalho.
+
+### Verificar a instalação
+
+A qualquer momento, dois cliques em:
+
+```
+verificar.bat
+```
+
+Ele confere, em poucos segundos, tudo que depende de biblioteca externa: banco
+de dados, senhas, interface, geração de PDF, **QR Code e código de barras**,
+leitura do logotipo, servidor do celular, exportações, e emite de verdade um
+comprovante, um carnê e um documento de cobrança.
+
+```
+[OK  ] Banco de dados e migrações
+[OK  ] Senhas (Argon2 / bcrypt) — algoritmo argon2id
+[OK  ] Interface e ícones (PySide6) — PySide6 6.7.2
+[OK  ] PDF, QR Code e código de barras — com QR e código de barras
+[OK  ] Documentos do sistema — cobrança, carnê e comprovante gerados
+  Tudo certo. O sistema está pronto para uso.
+```
+
+A verificação roda em uma **área temporária**: não toca no banco da loja e não
+deixa usuário nenhum para trás. O relatório também é gravado em
+`SYS_Crediario\logs\verificacao.txt`.
+
+> **Se a verificação falhar**, não use o executável no atendimento — mande o
+> arquivo `verificacao.txt` para quem cuida do sistema. A lista diz exatamente
+> qual parte não funcionou.
+
+### Detalhes do empacotamento
+
+A receita fica em `SYS_Crediario.spec`, versionada junto com o código. Ela
+declara o que o PyInstaller **não descobre sozinho**: o `uvicorn` escolhe
+protocolo por nome em tempo de execução, e o `reportlab` monta os widgets de
+código de barras executando uma string com o nome do módulo — sem coletar o
+pacote inteiro, o executável falharia em **todo PDF com QR**, ou seja, no
+documento de cobrança e no carnê. Esse caso já aconteceu e hoje tem teste
+guardando.
 
 ## Onde ficam os dados
 
@@ -296,8 +342,8 @@ Para colocar um ícone na Área de Trabalho, dê dois cliques em `criar_atalho.b
 C:\Users\SEU_USUARIO\SYS_Crediario\
 ├── data\sys_crediario.db     banco de dados
 ├── backups\                  backups gerados
-├── comprovantes\             comprovantes e carnês em PDF
-└── logs\                     registro técnico (rotativo, até 5 arquivos de 2 MB)
+├── comprovantes\             comprovantes, carnês e cobranças em PDF
+└── logs\                     registro técnico (rotativo) e verificacao.txt
 ```
 
 Essa pasta é **permanente**: atualizar o programa ou trocar o `.exe` não apaga
@@ -402,8 +448,11 @@ Os mesmos testes rodam automaticamente no GitHub a cada envio de código
 SYS_Crediario/
 ├── main.py                 inicialização do aplicativo
 ├── requirements.txt
-├── build_exe.bat           gera o SYS_Crediario.exe
+├── build_exe.bat           gera o SYS_Crediario.exe e verifica no final
 ├── criar_atalho.bat        atalho na Área de Trabalho
+├── verificar.bat           confere a instalação nesta máquina
+├── SYS_Crediario.spec      receita do empacotamento (revisável)
+├── assets/icone.ico        ícone do executável
 ├── app/
 │   ├── config.py           caminhos, versão e URL do banco
 │   ├── database/           conexão, tipos monetários e migrações

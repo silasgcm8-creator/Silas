@@ -46,7 +46,43 @@ jobs:
         run: |
           python -c "
           import app.ui.main_window, app.ui.login_window, app.ui.staff_home
+          import app.ui.charges, app.ui.charge_dialogs
           from app.api.server import create_app
           create_app()
           print('interface e API carregam')
           "
+
+      - name: Verificar a instalação
+        run: python main.py --verificar
+
+  # O executável do Windows é montado por empacotamento: uma biblioteca que o
+  # PyInstaller não enxerga só falha no programa pronto. Este job monta o
+  # pacote de verdade e roda a auto-verificação sobre o binário.
+  empacotamento:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Instalar as dependências
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Gerar o executável
+        run: python -m PyInstaller --noconfirm --clean SYS_Crediario.spec
+
+      - name: Verificar o executável gerado
+        run: .\dist\SYS_Crediario.exe --verificar
+
+      - name: Guardar o executável
+        uses: actions/upload-artifact@v4
+        with:
+          name: SYS_Crediario-exe
+          path: dist/SYS_Crediario.exe
+          if-no-files-found: error
