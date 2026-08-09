@@ -1,0 +1,8 @@
+SYS CREDIÁRIO — registros técnicos
+
+O arquivo sys_crediario.log guarda erros e eventos técnicos do programa.
+Por padrão ele é gravado em:
+
+    C:\Users\SEU_USUARIO\SYS_Crediario\logs\sys_crediario.log
+
+Se o sistema apresentar qualquer falha, envie esse arquivo ao suporte.
