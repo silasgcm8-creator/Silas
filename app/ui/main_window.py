@@ -27,6 +27,7 @@ from app.ui.clients import ClientsPage
 from app.ui.context import AppContext
 from app.ui.credits import CreditsPage
 from app.ui.dashboard import DashboardPage
+from app.ui.issue_charge import IssueChargePage
 from app.ui.late import LatePage
 from app.ui.payments import PaymentsPage
 from app.ui.reports import ReportsPage
@@ -43,7 +44,8 @@ MENU: list[tuple[str, str, Permission | None]] = [
     ("CLIENTES", "users", Permission.CLIENT_VIEW),
     ("NOVO CREDIÁRIO", "plus", Permission.CREDIT_CREATE),
     ("CREDIÁRIOS", "list", Permission.CREDIT_VIEW),
-    ("BOLETOS", "receipt", Permission.CHARGE_VIEW),
+    ("GERAR BOLETO", "receipt", Permission.CHARGE_ISSUE),
+    ("BOLETOS", "list", Permission.CHARGE_VIEW),
     ("ATRASADOS", "alert", Permission.FINANCE_OVERVIEW),
     ("RECEBIMENTOS", "cash", Permission.PAYMENT_REGISTER),
     ("RELATÓRIOS", "chart", Permission.FINANCE_OVERVIEW),
@@ -100,6 +102,8 @@ class MainWindow(QMainWindow):
             self.pages["CLIENTES"] = self.clients_page
         if self.ctx.can(Permission.CREDIT_VIEW):
             self.pages["CREDIÁRIOS"] = self.credits_page
+        if self.ctx.can(Permission.CHARGE_ISSUE):
+            self.pages["GERAR BOLETO"] = IssueChargePage(self.ctx)
         if self.ctx.can(Permission.CHARGE_VIEW):
             self.pages["BOLETOS"] = ChargesPage(self.ctx)
         if self.ctx.can(Permission.PAYMENT_REGISTER):
@@ -234,12 +238,10 @@ class MainWindow(QMainWindow):
             )
 
     def _staff_issue_charge(self) -> None:
-        """Vai para BOLETOS, onde se emite a cobrança e se imprime o documento."""
-        page = self._go("BOLETOS") or self._go("RECEBIMENTOS")
+        """Vai direto para a tela operacional de emissão, com a busca em foco."""
+        page = self._go("GERAR BOLETO")
         if page is not None:
-            self.ctx.notify(
-                "Localize a parcela do cliente e use Gerar cobrança para imprimir."
-            )
+            page.search.setFocus()
 
     def _staff_open_client(self, client_id: int) -> None:
         """Abre a ficha de um cadastro recente, sem passar pela busca."""

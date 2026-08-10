@@ -534,12 +534,21 @@ def list_documents(
     fim: date | None = None,
     por_vencimento: bool = False,
     limit: int = 500,
+    actor: SessionUser | None = None,
 ) -> list[ChargeRow]:
     """Documentos filtrados para a tela BOLETOS.
 
     `por_vencimento` troca o intervalo de datas de emissão para vencimento.
+
+    Sem a visão financeira, um documento vencido aparece como ``EM ABERTO``: a
+    lista serve para localizar e reimprimir o documento de um cliente, não para
+    varrer quem está atrasado. Pelo mesmo motivo, filtrar por ``ATRASADO`` não
+    devolve nada para esse perfil, em vez de virar uma lista de inadimplentes.
     """
     hoje = date.today()
+    atrasos = actor is None or actor.can(Permission.FINANCE_OVERVIEW)
+    if not atrasos and situacao == STATUS_LATE:
+        return []
     with session_scope() as session:
         stmt = (
             sa.select(
@@ -611,7 +620,7 @@ def list_documents(
                 estado = STATUS_CANCELLED
             elif row.pago:
                 estado = STATUS_PAID
-            elif row.vencimento < hoje:
+            elif row.vencimento < hoje and atrasos:
                 estado = STATUS_LATE
             else:
                 estado = STATUS_OPEN
@@ -633,6 +642,72 @@ def list_documents(
                 )
             )
         return linhas
+
+
+@dataclass(frozen=True)
+class IssuableRow:
+    """Parcela em aberto de **um** cliente, pronta para receber cobrança.
+
+    O contrato é deliberadamente estreito: o que a operação exige para escolher
+    a parcela e imprimir. Sem situação de atraso, sem dias em atraso, sem saldo
+    do cliente — o funcionário emite um documento, não consulta inadimplência.
+    """
+
+    parcela_id: int
+    crediario_id: int
+    parcela: str
+    vencimento: date
+    valor: Decimal
+    #: Número da cobrança ativa que já existe para esta parcela, se houver.
+    documento: str | None
+    documento_id: int | None
+
+    @property
+    def ja_tem_documento(self) -> bool:
+        return self.documento_id is not None
+
+
+def issuable_for_client(client_id: int, actor: SessionUser) -> list[IssuableRow]:
+    """Parcelas em aberto do cliente, em uma consulta só.
+
+    Usada pela tela GERAR BOLETO. Exige a permissão de emitir cobrança e nunca
+    olha para fora do cliente informado.
+    """
+    require(actor.role, Permission.CHARGE_ISSUE)
+    with session_scope() as session:
+        ativo = ChargeDocument.cancelado_em.is_(None)
+        stmt = (
+            sa.select(
+                Installment.id,
+                Installment.numero,
+                Installment.vencimento,
+                Installment.valor,
+                Credit.id.label("crediario_id"),
+                Credit.parcelas,
+                ChargeDocument.id.label("documento_id"),
+                ChargeDocument.numero.label("documento"),
+            )
+            .select_from(Installment)
+            .join(Credit, Credit.id == Installment.crediario_id)
+            .outerjoin(
+                ChargeDocument,
+                sa.and_(ChargeDocument.parcela_id == Installment.id, ativo),
+            )
+            .where(Credit.cliente_id == client_id, Installment.pago.is_(False))
+            .order_by(Installment.vencimento, Installment.id)
+        )
+        return [
+            IssuableRow(
+                parcela_id=row.id,
+                crediario_id=row.crediario_id,
+                parcela=f"{row.numero:02d}/{row.parcelas:02d}",
+                vencimento=row.vencimento,
+                valor=row.valor,
+                documento=row.documento,
+                documento_id=row.documento_id,
+            )
+            for row in session.execute(stmt).all()
+        ]
 
 
 @dataclass(frozen=True)
@@ -971,6 +1046,7 @@ __all__ = [
     "ChargeView",
     "EventRow",
     "IntegrationNotConfigured",
+    "IssuableRow",
     "PaymentDetails",
     "TYPE_BANK",
     "TYPE_REGISTERED",
@@ -984,6 +1060,7 @@ __all__ = [
     "default_type",
     "find_by_number",
     "history",
+    "issuable_for_client",
     "issue_pdf",
     "list_documents",
     "render_pdf",

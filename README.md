@@ -108,6 +108,13 @@ lista de **cadastros recentes**, com código, nome, telefone e data — dois
 cliques na linha abrem a ficha. Além do nome, do CPF e do telefone, a busca
 aceita o **código interno** do cadastro (`7` ou `000007`).
 
+A tela **GERAR BOLETO** é o fluxo do balcão em quatro passos — buscar o cliente,
+escolher a parcela, gerar, imprimir — e mostra apenas as parcelas em aberto
+**daquele** cliente, sem coluna de situação, sem filtros e sem documentos de
+terceiros. A tela **BOLETOS**, com filtros, histórico e cancelamento, continua
+existindo para a gestão; nela o atalho **ATRASADOS** e a marcação de atraso são
+exclusivos do administrador.
+
 **Situação financeira da loja é do dono.** Qualquer número que descreva o
 negócio como um todo — total a receber, total recebido, valor vencido, clientes
 em atraso, dias de atraso — passa por uma única permissão

@@ -255,6 +255,94 @@ def test_o_balcao_continua_funcionando_para_o_funcionario(funcionario):
     assert payment_service.mark_as_paid(parcela.id, funcionario) > 0
 
 
+# ---- GERAR BOLETO: o fluxo operacional -------------------------------
+
+
+def test_parcelas_para_cobrar_sao_so_do_cliente_escolhido(funcionario, admin, cliente, carteira):
+    from app.services import charge_service
+
+    outro = client_service.create_client(
+        "Outro Cliente", "111.444.777-35", "(62) 90000-0001", admin
+    )
+    credit_service.create_credit(
+        cliente_id=outro,
+        valor_total=Decimal("500.00"),
+        entrada=Decimal("0.00"),
+        parcelas=2,
+        primeiro_vencimento=HOJE - timedelta(days=30),
+        actor=admin,
+    )
+
+    linhas = charge_service.issuable_for_client(cliente, funcionario)
+
+    assert linhas, "o cliente tem parcelas em aberto"
+    # Nada do outro cliente entra na lista.
+    crediarios = {linha.crediario_id for linha in linhas}
+    assert crediarios == {carteira}
+    # A parcela já paga não aparece: não se cobra o que está quitado.
+    assert all(linha.valor > Decimal("0.00") for linha in linhas)
+    # E o contrato não tem campo de atraso por onde vazar inadimplência.
+    campos = set(vars(linhas[0]))
+    assert campos == {
+        "parcela_id",
+        "crediario_id",
+        "parcela",
+        "vencimento",
+        "valor",
+        "documento",
+        "documento_id",
+    }
+
+
+def test_funcionario_emite_e_reimprime_a_cobranca(funcionario, cliente, carteira, tmp_path):
+    from app.services import charge_service
+
+    parcela = charge_service.issuable_for_client(cliente, funcionario)[0]
+    assert parcela.documento is None and not parcela.ja_tem_documento
+
+    documento_id, caminho, view = charge_service.create_and_issue(
+        parcela.parcela_id, destination=tmp_path / "cobranca.pdf", actor=funcionario
+    )
+    assert caminho.stat().st_size > 1000
+
+    # A lista passa a mostrar o documento já emitido para aquela parcela.
+    depois = {
+        linha.parcela_id: linha
+        for linha in charge_service.issuable_for_client(cliente, funcionario)
+    }
+    assert depois[parcela.parcela_id].documento == view.numero
+
+    # Reimpressão continua liberada para ele.
+    novo_caminho, _ = charge_service.issue_pdf(
+        documento_id, tmp_path / "segunda-via.pdf", actor=funcionario
+    )
+    assert novo_caminho.stat().st_size > 1000
+
+
+def test_lista_de_boletos_nao_marca_atraso_para_o_funcionario(
+    funcionario, admin, cliente, carteira, tmp_path
+):
+    from app.models.charge import STATUS_LATE, STATUS_OPEN
+    from app.services import charge_service
+
+    parcela = charge_service.issuable_for_client(cliente, admin)[0]
+    charge_service.create_and_issue(
+        parcela.parcela_id, destination=tmp_path / "c.pdf", actor=admin
+    )
+
+    do_admin = charge_service.list_documents(actor=admin)
+    assert any(linha.situacao == STATUS_LATE for linha in do_admin), "o cenário tem atraso"
+
+    do_funcionario = charge_service.list_documents(actor=funcionario)
+    assert do_funcionario, "ele continua enxergando o documento para reimprimir"
+    assert all(linha.situacao != STATUS_LATE for linha in do_funcionario)
+    assert any(linha.situacao == STATUS_OPEN for linha in do_funcionario)
+
+    # E filtrar por ATRASADO não vira uma lista de inadimplentes.
+    assert charge_service.list_documents(situacao=STATUS_LATE, actor=funcionario) == []
+    assert charge_service.list_documents(situacao=STATUS_LATE, actor=admin)
+
+
 # ---- API local: a URL digitada à mão ---------------------------------
 
 pytest.importorskip("httpx", reason="os testes da API exigem httpx instalado")
