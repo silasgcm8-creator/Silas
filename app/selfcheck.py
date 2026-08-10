@@ -202,8 +202,10 @@ def _check_documents(pasta: Path) -> str:
     )
     parcelas = credit_service.get_detail(crediario).installments
 
+    # Cobrança, pagamento e comprovante são da **mesma** parcela: é assim que a
+    # operação acontece no balcão, e o serviço recusa documento de outra parcela.
     documento, cobranca, _ = charge_service.create_and_issue(
-        parcelas[1].id, destination=pasta / "cobranca.pdf", actor=actor
+        parcelas[0].id, destination=pasta / "cobranca.pdf", actor=actor
     )
     carne, _ = slip_service.issue(crediario, pasta / "carne.pdf", actor=actor)
     pagamento = payment_service.mark_as_paid(

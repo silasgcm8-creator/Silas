@@ -26,7 +26,7 @@ from app.services.document_header import draw_header
 from app.services.errors import BusinessError, NotFoundError
 from app.utils.dates import format_br, format_datetime_br
 from app.models.status import payment_method_label
-from app.utils.money import format_brl
+from app.utils.money import ZERO, format_brl
 
 A4 = "A4"
 COMPACT = "COMPACTO"
@@ -52,6 +52,10 @@ class ReceiptData:
     crediario_id: int
     forma: str = ""
     documento: str = ""
+    #: Valor de face da parcela. Quando difere do recebido, o comprovante
+    #: explica a diferença — um papel de R$ 330 para uma parcela de R$ 300 sem
+    #: explicação vira discussão no balcão.
+    valor_parcela: Decimal | None = None
 
     def nome_arquivo(self, layout: str = A4) -> str:
         """Nome do arquivo. O formato entra no nome para os dois coexistirem."""
@@ -102,6 +106,7 @@ def build_receipt(payment_id: int) -> ReceiptData:
         crediario_id=row.crediario_id,
         forma=payment_method_label(row.forma_pagamento) if row.forma_pagamento else "",
         documento=_charge_number(row.documento_id),
+        valor_parcela=row.valor_parcela,
     )
 
 
@@ -129,6 +134,11 @@ def _lines(data: ReceiptData) -> list[tuple[str, str]]:
         ("Registrado em", format_datetime_br(data.registrado_em)),
         ("Identificador", data.codigo),
     ]
+    if data.valor_parcela is not None and data.valor_parcela != data.valor:
+        ajuste = data.valor - data.valor_parcela
+        rotulo = "Juros / multa" if ajuste > ZERO else "Desconto"
+        linhas.insert(6, ("Valor da parcela", format_brl(data.valor_parcela)))
+        linhas.insert(7, (rotulo, format_brl(abs(ajuste))))
     if data.forma:
         linhas.append(("Forma de pagamento", data.forma))
     if data.documento:

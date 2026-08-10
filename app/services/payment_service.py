@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from app.database.connection import session_scope
+from app.models.charge import ChargeDocument
+from app.models.credit import Credit
 from app.models.installment import Installment
 from app.models.log import LogAction
 from app.models.payment import Payment
@@ -24,7 +26,7 @@ from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
 from app.services import log_service
 from app.services.errors import BusinessError, NotFoundError, ValidationError
-from app.utils.money import format_brl, from_cents
+from app.utils.money import ZERO, format_brl, from_cents
 from app.utils.validators import validate_payment_note, validate_reversal_reason
 
 ALREADY_PAID = "Esta parcela já está marcada como paga."
@@ -74,6 +76,34 @@ def _build_code(payments: PaymentRepository, reference: date) -> str:
     return f"PAG-{reference:%Y%m%d}-{secrets.token_hex(3).upper()}"
 
 
+def _validate_charge(
+    session, documento_id: int | None, installment_id: int
+) -> ChargeDocument | None:  # noqa: ANN001 - Session concreta do chamador
+    """Confere que o documento informado é mesmo desta parcela e vale hoje.
+
+    Antes de o valor do recebimento vir do documento, um `documento_id` errado
+    era só um vínculo torto no histórico. Agora ele define quanto entra no
+    caixa, então precisa ser conferido: existe, é desta parcela e não foi
+    cancelado.
+    """
+    if documento_id is None:
+        return None
+    documento = session.get(ChargeDocument, documento_id)
+    if documento is None:
+        raise NotFoundError("Documento de cobrança não encontrado.")
+    if documento.parcela_id != installment_id:
+        raise BusinessError(
+            "O documento de cobrança informado é de outra parcela. "
+            "Selecione a parcela correspondente ao documento."
+        )
+    if documento.cancelado_em is not None:
+        raise BusinessError(
+            "Este documento de cobrança foi cancelado. Emita um novo antes de "
+            "registrar o recebimento."
+        )
+    return documento
+
+
 def mark_as_paid(
     installment_id: int,
     actor: SessionUser | None = None,
@@ -118,6 +148,14 @@ def mark_as_paid(
         # Os dados do recebimento são copiados antes da baixa: depois dela o
         # estado da parcela em memória não é mais a fonte da verdade.
         numero, valor = installment.numero, installment.valor
+
+        # O que entra no caixa é o que o cliente pagou. Com documento de
+        # cobrança, é o valor impresso nele (parcela + juros − desconto), não o
+        # valor de face da parcela: quem paga um boleto de R$ 330 não deposita
+        # R$ 300. A parcela continua quitada pelo valor dela — são coisas
+        # diferentes: quanto da dívida foi liquidada e quanto dinheiro entrou.
+        documento = _validate_charge(session, documento_id, installment_id)
+        valor_recebido = documento.valor_atualizado if documento else valor
         cliente_nome, total_parcelas = credit.client.nome, credit.parcelas
         credit_id, cliente_id = credit.id, credit.cliente_id
 
@@ -132,7 +170,7 @@ def mark_as_paid(
             parcela_id=installment_id,
             crediario_id=credit_id,
             cliente_id=cliente_id,
-            valor=valor,
+            valor=valor_recebido,
             data_pagamento=payment_date,
             codigo=_build_code(payments, payment_date),
             forma_pagamento=forma,
@@ -155,9 +193,24 @@ def mark_as_paid(
             actor,
             detalhes=(
                 f"{cliente_nome} — parcela {numero}/{total_parcelas}"
-                f" de {format_brl(valor)} (recebimento {payment.codigo}"
+                f" de {format_brl(valor_recebido)} (recebimento {payment.codigo}"
                 + (f", {payment_method_label(forma)}" if forma else "")
                 + ")"
+                # Quando o documento traz juros ou desconto, o log guarda a
+                # composição: sem isso, o valor no caixa não bate com a parcela
+                # e ninguém consegue explicar a diferença meses depois.
+                + (
+                    f" — parcela {format_brl(valor)}"
+                    + (f" + juros {format_brl(documento.juros)}" if documento.juros > ZERO else "")
+                    + (
+                        f" − desconto {format_brl(documento.desconto)}"
+                        if documento.desconto > ZERO
+                        else ""
+                    )
+                    + f" (documento {documento.numero})"
+                    if documento is not None and valor_recebido != valor
+                    else ""
+                )
                 + (f" — obs.: {observacao}" if observacao else "")
             ),
             cliente_id=cliente_id,
@@ -250,18 +303,24 @@ class PayableRow:
     crediario_id: int
     parcela: str
     vencimento: date
-    valor: Decimal
+    #: Valor de face da parcela — o que ela abate da dívida.
+    valor_parcela: Decimal
+    #: O que o cliente paga hoje. Com documento de cobrança é o valor impresso
+    #: nele (parcela + juros − desconto); sem documento, é a própria parcela.
+    #: A tela mostra este, e é este que entra no caixa.
+    valor_a_receber: Decimal
     #: Número da cobrança ativa da parcela, quando o cliente chegou com ela.
     documento: str | None
     documento_id: int | None
+
+    @property
+    def tem_ajuste(self) -> bool:
+        return self.valor_a_receber != self.valor_parcela
 
 
 def payable_for_client(client_id: int, actor: SessionUser) -> list[PayableRow]:
     """Parcelas em aberto do cliente, da mais antiga para a mais nova."""
     require(actor.role, Permission.PAYMENT_REGISTER)
-    from app.models.charge import ChargeDocument
-    from app.models.credit import Credit
-
     with session_scope() as session:
         ativo = ChargeDocument.cancelado_em.is_(None)
         stmt = (
@@ -274,6 +333,7 @@ def payable_for_client(client_id: int, actor: SessionUser) -> list[PayableRow]:
                 Credit.parcelas,
                 ChargeDocument.id.label("documento_id"),
                 ChargeDocument.numero.label("documento"),
+                ChargeDocument.valor_atualizado,
             )
             .select_from(Installment)
             .join(Credit, Credit.id == Installment.crediario_id)
@@ -290,7 +350,10 @@ def payable_for_client(client_id: int, actor: SessionUser) -> list[PayableRow]:
                 crediario_id=row.crediario_id,
                 parcela=f"{row.numero:02d}/{row.parcelas:02d}",
                 vencimento=row.vencimento,
-                valor=row.valor,
+                valor_parcela=row.valor,
+                valor_a_receber=(
+                    row.valor_atualizado if row.documento_id is not None else row.valor
+                ),
                 documento=row.documento,
                 documento_id=row.documento_id,
             )
