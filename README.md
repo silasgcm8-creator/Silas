@@ -111,9 +111,16 @@ aceita o **código interno** do cadastro (`7` ou `000007`).
 
 A tela **REGISTRAR PAGAMENTO** é o caixa do balcão em cinco passos — buscar o
 cliente, escolher a parcela, informar data, forma de pagamento e observação,
-confirmar e emitir o comprovante. O valor é o da parcela e sai como rótulo, não
-como campo: o sistema baixa parcelas inteiras, e a data não pode ser futura.
-Nada de saldo do cliente, atraso ou total de caixa.
+confirmar e emitir o comprovante. O valor sai como rótulo, não como campo: o
+sistema baixa parcelas inteiras, e a data não pode ser futura. Nada de saldo do
+cliente, atraso ou total de caixa.
+
+**O valor cobrado é o valor recebido.** Quando a parcela tem documento de
+cobrança com juros ou desconto, é o valor **impresso no documento** que aparece
+na tela, entra no caixa e sai no comprovante — com a composição ao lado
+(`parcela R$ 300,00 + juros/multa R$ 30,00`). A dívida, essa, é quitada pelo
+valor de face da parcela: quanto entrou no caixa e quanto da dívida foi
+liquidada são grandezas diferentes, e as duas ficam certas.
 
 A tela **GERAR BOLETO** é o fluxo do balcão em quatro passos — buscar o cliente,
 escolher a parcela, gerar, imprimir — e mostra apenas as parcelas em aberto

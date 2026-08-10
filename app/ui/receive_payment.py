@@ -8,9 +8,11 @@ A tela mostra só o indispensável para receber: a parcela, o valor, a data, a
 forma de pagamento e uma observação opcional. Não é extrato — não traz saldo do
 cliente, histórico de compras, atraso nem totalizador de caixa.
 
-O valor é o da parcela e não é editável: o sistema baixa parcelas inteiras. Um
-recebimento parcial mudaria a semântica do crediário e precisa de decisão do
-dono, não de um campo aberto no balcão.
+O valor não é editável: o sistema baixa parcelas inteiras. Um recebimento
+parcial mudaria a semântica do crediário e precisa de decisão do dono, não de um
+campo aberto no balcão. Quando a parcela tem documento de cobrança, o valor
+exibido é o **impresso no documento** (parcela + juros − desconto), com a
+composição ao lado — é isso que o cliente paga e é isso que entra no caixa.
 """
 
 from __future__ import annotations
@@ -122,7 +124,12 @@ class ReceivePaymentPage(QWidget):
 
         self.amount_label = QLabel("—")
         self.amount_label.setObjectName("CardValue")
-        form.addRow(field_label("VALOR RECEBIDO"), self.amount_label)
+        valor_linha = QHBoxLayout()
+        valor_linha.addWidget(self.amount_label)
+        self.breakdown = QLabel("")
+        self.breakdown.setStyleSheet(f"color: {TEXT_MUTED};")
+        valor_linha.addWidget(self.breakdown, 1)
+        form.addRow(field_label("VALOR RECEBIDO"), valor_linha)
 
         self.date_edit = DateEdit(date.today())
         form.addRow(field_label("DATA"), self.date_edit)
@@ -155,8 +162,8 @@ class ReceivePaymentPage(QWidget):
         layout.addLayout(acoes)
 
         self.result = empty_hint(
-            "O valor é o da parcela escolhida. Confirme para dar baixa e emitir "
-            "o comprovante."
+            "O valor é o que o cliente paga hoje. Confirme para dar baixa e "
+            "emitir o comprovante."
         )
         layout.addWidget(self.result)
 
@@ -221,7 +228,7 @@ class ReceivePaymentPage(QWidget):
                     text_item(f"{row.crediario_id:06d}", key=row.parcela_id),
                     text_item(row.parcela, bold=True),
                     date_item(row.vencimento),
-                    money_item(row.valor),
+                    money_item(row.valor_a_receber),
                     text_item(row.documento or "—"),
                 ]
                 for row in self._rows
@@ -249,10 +256,31 @@ class ReceivePaymentPage(QWidget):
         return None
 
     def _show_amount(self) -> None:
-        """O valor exibido é sempre o da parcela selecionada — nunca digitado."""
+        """O valor exibido é o que o cliente paga — nunca digitado.
+
+        Com documento de cobrança, é o valor impresso nele. Quando difere da
+        parcela (juros ou desconto), a composição aparece ao lado: o funcionário
+        precisa saber por que está cobrando R$ 330 de uma parcela de R$ 300.
+        """
         row = self._selected()
-        self.amount_label.setText(format_brl(row.valor) if row else "—")
-        self.confirm_button.setEnabled(row is not None)
+        if row is None:
+            self.amount_label.setText("—")
+            self.breakdown.setText("")
+            self.confirm_button.setEnabled(False)
+            return
+
+        self.amount_label.setText(format_brl(row.valor_a_receber))
+        if row.tem_ajuste:
+            ajuste = row.valor_a_receber - row.valor_parcela
+            rotulo = "juros/multa" if ajuste > 0 else "desconto"
+            self.breakdown.setText(
+                f"parcela {format_brl(row.valor_parcela)} "
+                f"{'+' if ajuste > 0 else '−'} {rotulo} {format_brl(abs(ajuste))} "
+                f"(documento {row.documento})"
+            )
+        else:
+            self.breakdown.setText("")
+        self.confirm_button.setEnabled(True)
 
     # ---- passos 4 e 5 ------------------------------------------------
 
@@ -269,7 +297,7 @@ class ReceivePaymentPage(QWidget):
             "Confirmar recebimento?",
             f"Cliente: {self._client_name}\n"
             f"Parcela: {row.parcela}\n"
-            f"Valor: {format_brl(row.valor)}\n"
+            f"Valor: {format_brl(row.valor_a_receber)}\n"
             f"Data: {data.strftime('%d/%m/%Y')}\n"
             f"Forma de pagamento: {forma_rotulo}\n\n"
             "Confirmar a baixa desta parcela?",
@@ -296,7 +324,7 @@ class ReceivePaymentPage(QWidget):
         # o funcionário precisa ler a confirmação da operação que acabou de fazer.
         self.refresh()
         self.result.setText(
-            f"Parcela {row.parcela} baixada — {format_brl(row.valor)} em "
+            f"Parcela {row.parcela} baixada — {format_brl(row.valor_a_receber)} em "
             f"{forma_rotulo}. Use Comprovante para entregar ao cliente."
         )
 

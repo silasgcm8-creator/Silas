@@ -282,7 +282,8 @@ def test_parcelas_a_receber_sao_so_do_cliente_escolhido(funcionario, admin, clie
         "crediario_id",
         "parcela",
         "vencimento",
-        "valor",
+        "valor_parcela",
+        "valor_a_receber",
         "documento",
         "documento_id",
     }
@@ -307,7 +308,7 @@ def test_recebimento_guarda_forma_data_observacao_e_autor(funcionario, cliente, 
         gravado = session.get(Payment, pagamento)
         assert gravado.forma_pagamento == "PIX"
         assert gravado.data_pagamento == ontem
-        assert gravado.valor == parcela.valor
+        assert gravado.valor == parcela.valor_a_receber
         assert gravado.usuario_id == funcionario.id
         assert gravado.usuario_nome == funcionario.nome
         # Espaços em excesso são achatados para caber no comprovante.

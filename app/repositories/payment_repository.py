@@ -118,6 +118,7 @@ class PaymentRepository(BaseRepository[Payment]):
                 Client.telefone,
                 Installment.numero,
                 Installment.vencimento,
+                Installment.valor.label("valor_parcela"),
                 Credit.parcelas,
                 Credit.id.label("crediario_id"),
             )
