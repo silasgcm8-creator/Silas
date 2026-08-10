@@ -16,7 +16,7 @@ APP_NAME = "SYS CREDIÁRIO"
 #: o administrador altera em Configurações → Empresa e Pix.
 COMPANY_DEFAULT = "Ótica Visão"
 APP_SLUG = "SYS_Crediario"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_ORG = "SYS"
 
 #: Marca gravada na tabela de configurações; usada para validar backups.
