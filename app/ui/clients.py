@@ -173,31 +173,36 @@ class ClientDetailDialog(QDialog):
         self.identity.setObjectName("Muted")
         layout.addWidget(self.identity)
 
-        cards = QGridLayout()
-        cards.setSpacing(12)
-        self.card_comprado = MetricCard("Total comprado", "cash", ACCENT)
-        self.card_pago = MetricCard("Total pago", "check", GREEN)
-        self.card_aberto = MetricCard("Total em aberto", "list", YELLOW)
-        self.card_vencido = MetricCard("Total vencido", "alert", RED)
-        self.card_saldo = MetricCard("Saldo devedor", "chart", PURPLE)
-        for index, card in enumerate(
-            (
-                self.card_comprado,
-                self.card_pago,
-                self.card_aberto,
-                self.card_vencido,
-                self.card_saldo,
-            )
-        ):
-            cards.addWidget(card, index // 3, index % 3)
-        layout.addLayout(cards)
+        # A ficha financeira consolidada é do administrador. Para o funcionário
+        # os cartões não existem — ele abre a ficha para atender, não para saber
+        # quanto o cliente deve no total.
+        self.financeiro = ctx.can(Permission.FINANCE_OVERVIEW)
+        if self.financeiro:
+            cards = QGridLayout()
+            cards.setSpacing(12)
+            self.card_comprado = MetricCard("Total comprado", "cash", ACCENT)
+            self.card_pago = MetricCard("Total pago", "check", GREEN)
+            self.card_aberto = MetricCard("Total em aberto", "list", YELLOW)
+            self.card_vencido = MetricCard("Total vencido", "alert", RED)
+            self.card_saldo = MetricCard("Saldo devedor", "chart", PURPLE)
+            for index, card in enumerate(
+                (
+                    self.card_comprado,
+                    self.card_pago,
+                    self.card_aberto,
+                    self.card_vencido,
+                    self.card_saldo,
+                )
+            ):
+                cards.addWidget(card, index // 3, index % 3)
+            layout.addLayout(cards)
 
         layout.addWidget(SectionTitle("Crediários do cliente"))
-        self.table = DataTable(
-            ["Crediário", "Compra", "Parcelas", "Pago", "Saldo", "Vencido", "1º vencimento"],
-            stretch=None,
-            sortable=False,
-        )
+        colunas = ["Crediário", "Compra", "Parcelas", "Pago"]
+        if self.financeiro:
+            colunas += ["Saldo", "Vencido"]
+        colunas.append("1º vencimento")
+        self.table = DataTable(colunas, stretch=None, sortable=False)
         self.table.doubleClicked.connect(lambda *_: self._open_credit())
         layout.addWidget(self.table, 1)
 
@@ -225,7 +230,7 @@ class ClientDetailDialog(QDialog):
 
     def refresh(self) -> None:
         try:
-            summary = client_service.get_summary(self.client_id)
+            summary = client_service.get_summary(self.client_id, actor=self.ctx.user)
         except NotFoundError as exc:
             error(self, "Cliente", str(exc))
             self.reject()
@@ -237,32 +242,35 @@ class ClientDetailDialog(QDialog):
             title.setText(summary.nome)
         subtitle = self.header.findChild(QLabel, "PageSubtitle")
         if subtitle is not None:
-            subtitle.setText("Ficha financeira")
+            subtitle.setText("Ficha financeira" if self.financeiro else "Cadastro")
         self.identity.setText(f"{summary.cpf}   •   {summary.telefone}")
 
-        self.card_comprado.set_value(format_brl(summary.total_comprado))
-        self.card_pago.set_value(format_brl(summary.total_pago), color=GREEN)
-        self.card_aberto.set_value(format_brl(summary.total_aberto))
-        self.card_vencido.set_value(
-            format_brl(summary.total_vencido),
-            color=RED if summary.total_vencido > ZERO else None,
-        )
-        self.card_saldo.set_value(format_brl(summary.saldo_devedor))
+        if self.financeiro:
+            self.card_comprado.set_value(format_brl(summary.total_comprado))
+            self.card_pago.set_value(format_brl(summary.total_pago), color=GREEN)
+            self.card_aberto.set_value(format_brl(summary.total_aberto))
+            self.card_vencido.set_value(
+                format_brl(summary.total_vencido),
+                color=RED if summary.total_vencido > ZERO else None,
+            )
+            self.card_saldo.set_value(format_brl(summary.saldo_devedor))
 
         rows = []
         for credit in credit_service.list_by_client(self.client_id):
-            vencido = credit["vencido"]
-            rows.append(
-                [
-                    text_item(f"#{credit['id']}", key=int(credit["id"]), bold=True),
-                    money_item(credit["valor_total"]),
-                    number_item(int(credit["parcelas"])),
-                    money_item(credit["pago"], color=GREEN),
+            celulas = [
+                text_item(f"#{credit['id']}", key=int(credit["id"]), bold=True),
+                money_item(credit["valor_total"]),
+                number_item(int(credit["parcelas"])),
+                money_item(credit["pago"], color=GREEN),
+            ]
+            if self.financeiro:
+                vencido = credit["vencido"]
+                celulas += [
                     money_item(credit["saldo"]),
                     money_item(vencido, color=RED if vencido > ZERO else TEXT_MUTED),
-                    date_item(credit["primeiro_vencimento"]),
                 ]
-            )
+            celulas.append(date_item(credit["primeiro_vencimento"]))
+            rows.append(celulas)
         self.table.fill(rows)
         if rows:
             self.table.selectRow(0)
@@ -292,7 +300,7 @@ class ClientDetailDialog(QDialog):
 
     def _whatsapp(self) -> None:
         open_charge_whatsapp(
-            self, self.client_id, self.summary.nome, self.summary.telefone
+            self.ctx, self, self.client_id, self.summary.nome, self.summary.telefone
         )
 
 
@@ -410,18 +418,15 @@ class ClientsPage(QWidget):
             bar.addWidget(deleted_button)
         layout.addLayout(bar)
 
-        self.table = DataTable(
-            [
-                "Nome completo",
-                "CPF",
-                "Telefone",
-                "Saldo devedor",
-                "Valor vencido",
-                "Ações",
-            ],
-            stretch=0,
-            sortable=False,
-        )
+        # As colunas de dinheiro só existem para a visão financeira. Para o
+        # funcionário elas não aparecem vazias: a tabela não as tem.
+        self.financeiro = ctx.can(Permission.FINANCE_OVERVIEW)
+        colunas = ["Nome completo", "CPF", "Telefone"]
+        if self.financeiro:
+            colunas += ["Saldo devedor", "Valor vencido"]
+        colunas.append("Ações")
+        self.coluna_acoes = len(colunas) - 1
+        self.table = DataTable(colunas, stretch=0, sortable=False)
         self.table.doubleClicked.connect(lambda *_: self._open_selected())
         layout.addWidget(self.table, 1)
 
@@ -456,33 +461,46 @@ class ClientsPage(QWidget):
         ultima = max(0, (total - 1) // tamanho) if total else 0
         self._page = min(self._page, ultima)
         rows = client_service.list_clients(
-            self._term, limit=tamanho, offset=self._page * tamanho
+            self._term,
+            limit=tamanho,
+            offset=self._page * tamanho,
+            actor=self.ctx.user,
         )
-        self.table.fill(
-            [
-                [
-                    text_item(row.nome, key=row.id),
-                    text_item(row.cpf),
-                    text_item(row.telefone),
-                    money_item(row.saldo),
-                    money_item(row.vencido, color=RED if row.vencido > ZERO else TEXT_MUTED),
-                    text_item(""),
-                ]
-                for row in rows
+        linhas = []
+        for row in rows:
+            celulas = [
+                text_item(row.nome, key=row.id),
+                text_item(row.cpf),
+                text_item(row.telefone),
             ]
-        )
+            if self.financeiro:
+                celulas += [
+                    money_item(row.saldo),
+                    money_item(
+                        row.vencido, color=RED if row.vencido > ZERO else TEXT_MUTED
+                    ),
+                ]
+            celulas.append(text_item(""))
+            linhas.append(celulas)
+        self.table.fill(linhas)
         for index, row in enumerate(rows):
-            self.table.setCellWidget(index, 5, self._actions(row.id, row.nome, row.telefone))
-        self.table.setColumnWidth(5, 140)
-        # Totais somados no banco, sobre toda a busca — não apenas a página.
-        saldo, vencido = client_service.search_totals(self._term)
+            self.table.setCellWidget(
+                index, self.coluna_acoes, self._actions(row.id, row.nome, row.telefone)
+            )
+        self.table.setColumnWidth(self.coluna_acoes, 140)
         primeiro = self._page * tamanho + 1 if rows else 0
         ultimo = self._page * tamanho + len(rows)
         faixa = f"{primeiro}–{ultimo} de {total}" if total else "nenhum cliente"
-        self.total_label.setText(
-            f"Mostrando {faixa}   •   saldo {format_brl(saldo)}   •   "
-            f"vencido {format_brl(vencido)}"
-        )
+        # Somatório da carteira inteira: só para quem tem a visão financeira.
+        # Para o funcionário o rodapé mostra apenas a contagem da lista.
+        if self.ctx.can(Permission.FINANCE_OVERVIEW):
+            saldo, vencido = client_service.search_totals(self.ctx.user, self._term)
+            self.total_label.setText(
+                f"Mostrando {faixa}   •   saldo {format_brl(saldo)}   •   "
+                f"vencido {format_brl(vencido)}"
+            )
+        else:
+            self.total_label.setText(f"Mostrando {faixa}")
         self.page_label.setText(f"Página {self._page + 1} de {ultima + 1}")
         self.prev_button.setEnabled(self._page > 0)
         self.next_button.setEnabled(self._page < ultima)
@@ -507,7 +525,7 @@ class ClientsPage(QWidget):
         edit_button.setEnabled(self.ctx.can(Permission.CLIENT_EDIT))
         whats_button = small("whatsapp", "Enviar cobrança pelo WhatsApp", GREEN)
         whats_button.clicked.connect(
-            lambda: open_charge_whatsapp(self, client_id, nome, telefone)
+            lambda: open_charge_whatsapp(self.ctx, self, client_id, nome, telefone)
         )
         whats_button.setEnabled(self.ctx.can(Permission.WHATSAPP))
 

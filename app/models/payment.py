@@ -59,6 +59,10 @@ class Payment(Base):
     #: Documento de cobrança que originou o recebimento, quando houver.
     documento_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, index=True)
 
+    #: Observação operacional do caixa ("pagou em duas notas", "cliente pediu
+    #: segunda via"). Entra no histórico e na auditoria; não altera valor algum.
+    observacao: Mapped[str] = mapped_column(sa.String(300), default="")
+
     usuario_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True
     )

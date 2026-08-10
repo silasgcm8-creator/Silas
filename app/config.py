@@ -16,7 +16,7 @@ APP_NAME = "SYS CREDIÁRIO"
 #: o administrador altera em Configurações → Empresa e Pix.
 COMPANY_DEFAULT = "Ótica Visão"
 APP_SLUG = "SYS_Crediario"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_ORG = "SYS"
 
 #: Marca gravada na tabela de configurações; usada para validar backups.
@@ -26,7 +26,8 @@ DB_SIGNATURE = "SYS_CREDIARIO"
 #:     índice único parcial, para a parcela poder ser paga de novo após estorno.
 #: 4 — exclusão lógica de cliente (excluido_em / por / motivo).
 #: 5 — módulo de cobranças: contas de recebimento, documentos e histórico.
-SCHEMA_VERSION = 5
+#: 6 — observação operacional do recebimento (pagamentos.observacao).
+SCHEMA_VERSION = 6
 
 
 def base_dir() -> Path:

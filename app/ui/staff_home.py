@@ -1,8 +1,13 @@
 """Terminal operacional do funcionário: poucas ações, botões grandes.
 
-O funcionário não precisa enxergar a complexidade administrativa. Esta tela
-oferece as quatro ações do balcão em botões grandes, com atalhos de teclado, e
-mostra apenas o que ajuda o atendimento.
+A tela oferece as ações do balcão e a lista dos últimos cadastros — **nada
+mais**. Nenhum valor consolidado, nenhum indicador, nenhum totalizador, nem
+zerado. O funcionário trabalha com o cliente à sua frente; a situação financeira
+da loja não é assunto dele, e o componente que a mostraria não existe aqui.
+
+Os cadastros recentes vêm de ``client_service.recent_clients``, que devolve
+apenas nome, código, telefone e data: a ausência de dinheiro é garantida no
+serviço, não por uma coluna escondida na tabela.
 """
 
 from __future__ import annotations
@@ -11,7 +16,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
@@ -19,21 +23,22 @@ from PySide6.QtWidgets import (
 )
 
 from app.security.permissions import Permission
-from app.services import payment_service, report_service
+from app.services import client_service
 from app.ui import icons
 from app.ui.context import AppContext
-from app.ui.theme import ACCENT, TEXT_MUTED
-from app.ui.widgets import Card, empty_hint
-from app.utils.dates import today as _hoje
-from app.utils.money import format_brl
+from app.ui.widgets import DataTable, SectionTitle, empty_hint, text_item
+from app.utils.dates import format_datetime_br
 
 #: Rótulo, ícone, atalho e permissão de cada ação do balcão.
 ACTIONS = (
-    ("NOVO CLIENTE", "plus", "Ctrl+N", Permission.CLIENT_CREATE),
+    ("NOVO CADASTRO", "plus", "Ctrl+N", Permission.CLIENT_CREATE),
+    ("BUSCAR CLIENTE", "search", "Ctrl+F", Permission.CLIENT_VIEW),
     ("REGISTRAR PAGAMENTO", "cash", "Ctrl+R", Permission.PAYMENT_REGISTER),
-    ("PESQUISAR CLIENTE", "search", "Ctrl+F", Permission.CLIENT_VIEW),
-    ("COMPROVANTES", "receipt", "Ctrl+P", Permission.RECEIPT_ISSUE),
+    ("GERAR BOLETO", "receipt", "Ctrl+B", Permission.CHARGE_ISSUE),
 )
+
+#: Quantos cadastros recentes cabem sem transformar a tela em relatório.
+RECENT_LIMIT = 8
 
 
 class BigActionButton(QPushButton):
@@ -54,9 +59,11 @@ class StaffHomePage(QWidget):
     """Tela inicial do funcionário."""
 
     new_client = Signal()
-    register_payment = Signal()
     search_client = Signal()
-    receipts = Signal()
+    register_payment = Signal()
+    issue_charge = Signal()
+    #: Duplo clique em um cadastro recente abre a ficha daquele cliente.
+    open_client = Signal(int)
 
     def __init__(self, ctx: AppContext, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -64,7 +71,7 @@ class StaffHomePage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(18)
+        layout.setSpacing(16)
 
         saudacao = QVBoxLayout()
         saudacao.setSpacing(2)
@@ -80,9 +87,9 @@ class StaffHomePage(QWidget):
         grid.setSpacing(14)
         sinais = (
             self.new_client,
-            self.register_payment,
             self.search_client,
-            self.receipts,
+            self.register_payment,
+            self.issue_charge,
         )
         for posicao, ((label, icon_name, shortcut, permissao), sinal) in enumerate(
             zip(ACTIONS, sinais)
@@ -93,16 +100,13 @@ class StaffHomePage(QWidget):
             grid.addWidget(botao, posicao // 2, posicao % 2)
         layout.addLayout(grid)
 
-        self.resumo = Card()
-        titulo_resumo = QLabel("ATENDIMENTO DE HOJE")
-        titulo_resumo.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 11px; letter-spacing: 0.08em; font-weight: 600;"
+        layout.addWidget(SectionTitle("Cadastros recentes"))
+        self.table = DataTable(
+            ["Código", "Nome", "Telefone", "Cadastrado em"], stretch=1, sortable=False
         )
-        self.resumo.body.addWidget(titulo_resumo)
-        self.resumo_linha = QHBoxLayout()
-        self.resumo_linha.setSpacing(28)
-        self.resumo.body.addLayout(self.resumo_linha)
-        layout.addWidget(self.resumo)
+        self.table.setMaximumHeight(230)
+        self.table.doubleClicked.connect(self._open_selected)
+        layout.addWidget(self.table)
 
         self.aviso = empty_hint(
             "Precisa de algo além destas ações? Fale com o administrador."
@@ -112,37 +116,27 @@ class StaffHomePage(QWidget):
 
         self.refresh()
 
-    def _metric(self, rotulo: str, valor: str) -> QWidget:
-        caixa = QWidget()
-        coluna = QVBoxLayout(caixa)
-        coluna.setContentsMargins(0, 0, 0, 0)
-        coluna.setSpacing(2)
-        titulo = QLabel(rotulo.upper())
-        titulo.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 11px; letter-spacing: 0.06em;"
-        )
-        numero = QLabel(valor)
-        numero.setStyleSheet(f"color: {ACCENT}; font-size: 20px; font-weight: 700;")
-        coluna.addWidget(titulo)
-        coluna.addWidget(numero)
-        return caixa
+    def _open_selected(self) -> None:
+        client_id = self.table.selected_key()
+        if client_id is not None:
+            self.open_client.emit(int(client_id))
 
     def refresh(self) -> None:
-        """Só indicadores do próprio atendimento — nada administrativo."""
-        while self.resumo_linha.count():
-            item = self.resumo_linha.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        painel = report_service.dashboard()
-        self.resumo_linha.addWidget(
-            self._metric("Recebido hoje", format_brl(painel.recebido_hoje))
+        """Recarrega apenas os cadastros recentes — a tela não tem mais dados."""
+        if not self.ctx.can(Permission.CLIENT_VIEW):
+            self.table.fill([])
+            return
+        linhas = client_service.recent_clients(RECENT_LIMIT, actor=self.ctx.user)
+        self.table.fill(
+            [
+                [
+                    text_item(row.codigo, key=row.id, bold=True),
+                    text_item(row.nome),
+                    text_item(row.telefone),
+                    text_item(
+                        format_datetime_br(row.cadastrado_em) if row.cadastrado_em else "—"
+                    ),
+                ]
+                for row in linhas
+            ]
         )
-        self.resumo_linha.addWidget(
-            self._metric("Pagamentos hoje", str(len(payment_service.list_payments(_hoje(), _hoje()))))
-        )
-        self.resumo_linha.addWidget(
-            self._metric("Parcelas vencendo hoje", str(painel.parcelas_vencendo_hoje))
-        )
-        self.resumo_linha.addStretch(1)

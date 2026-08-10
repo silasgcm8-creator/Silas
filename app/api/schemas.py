@@ -26,12 +26,14 @@ class TokenOut(IdentityOut):
 
 
 class ClientOut(BaseModel):
+    """Saldo e vencido saem `null` para quem não tem a visão financeira."""
+
     id: int
     nome: str
     cpf: str
     telefone: str
-    saldo: Decimal
-    vencido: Decimal
+    saldo: Decimal | None = None
+    vencido: Decimal | None = None
     crediarios: int
 
 
@@ -40,10 +42,10 @@ class ClientSummaryOut(BaseModel):
     nome: str
     cpf: str
     telefone: str
-    total_comprado: Decimal
-    total_pago: Decimal
-    total_aberto: Decimal
-    total_vencido: Decimal
+    total_comprado: Decimal | None = None
+    total_pago: Decimal | None = None
+    total_aberto: Decimal | None = None
+    total_vencido: Decimal | None = None
 
 
 class CreditOut(BaseModel):
@@ -54,8 +56,8 @@ class CreditOut(BaseModel):
     entrada: Decimal
     parcelas: int
     pagas: int
-    saldo: Decimal
-    vencido: Decimal
+    saldo: Decimal | None = None
+    vencido: Decimal | None = None
 
 
 class InstallmentOut(BaseModel):
@@ -76,8 +78,8 @@ class CreditDetailOut(BaseModel):
     valor_total: Decimal
     entrada: Decimal
     parcelas: int
-    saldo: Decimal
-    vencido: Decimal
+    saldo: Decimal | None = None
+    vencido: Decimal | None = None
     itens: list[InstallmentOut]
 
 

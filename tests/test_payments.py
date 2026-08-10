@@ -54,11 +54,11 @@ def test_pagamento_aparece_nos_recebimentos(admin, crediario):
     payment_service.mark_as_paid(parcela.id, admin)
 
     hoje = date.today()
-    recebimentos = payment_service.list_payments(hoje, hoje)
+    recebimentos = payment_service.list_payments(hoje, hoje, actor=admin)
     assert len(recebimentos) == 1
     assert recebimentos[0].valor == Decimal("200.00")
     assert recebimentos[0].usuario == "Proprietário SYS"
-    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")
 
 
 def test_pagar_duas_vezes_e_bloqueado(admin, crediario):
@@ -92,7 +92,7 @@ def test_banco_recusa_dois_recebimentos_da_mesma_parcela(admin, crediario):
             )
 
     hoje = date.today()
-    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")
 
 
 def test_baixa_condicional_nao_reabre_parcela_ja_paga(admin, crediario):
@@ -118,24 +118,24 @@ def test_estorno_volta_parcela_para_atrasado(admin, crediario):
     assert detalhe.saldo == Decimal("600.00")
 
     hoje = date.today()
-    assert payment_service.list_payments(hoje, hoje) == []
-    assert payment_service.total_received(hoje, hoje) == Decimal("0.00")
+    assert payment_service.list_payments(hoje, hoje, actor=admin) == []
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("0.00")
 
 
 def test_total_vencido_e_painel(admin, cliente, crediario):
-    painel = report_service.dashboard()
+    painel = report_service.dashboard(admin)
     assert painel.total_a_receber == Decimal("600.00")
     assert painel.total_vencido == Decimal("200.00")
     assert painel.parcelas_vencidas == 1
     assert painel.clientes_em_atraso == 1
 
-    atrasados = report_service.late_clients()
+    atrasados = report_service.late_clients(admin)
     assert len(atrasados) == 1
     assert atrasados[0].vencido == Decimal("200.00")
     assert atrasados[0].parcelas_vencidas == 1
     assert atrasados[0].dias_atraso == 18
 
-    total, mais_antiga, quantidade = report_service.client_overdue_summary(cliente)
+    total, mais_antiga, quantidade = report_service.client_overdue_summary(admin, cliente)
     assert total == Decimal("200.00")
     assert quantidade == 1
     assert mais_antiga == date.today() - timedelta(days=18)
@@ -144,5 +144,5 @@ def test_total_vencido_e_painel(admin, cliente, crediario):
 def test_pagamento_retira_o_cliente_dos_atrasados(admin, crediario):
     parcela = credit_service.get_detail(crediario).installments[0]
     payment_service.mark_as_paid(parcela.id, admin)
-    assert report_service.late_clients() == []
-    assert report_service.dashboard().total_vencido == Decimal("0.00")
+    assert report_service.late_clients(admin) == []
+    assert report_service.dashboard(admin).total_vencido == Decimal("0.00")

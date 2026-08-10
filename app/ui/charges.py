@@ -76,6 +76,7 @@ class ChargesPage(QWidget):
         self.ctx = ctx
         self._term = ""
         self._situacao = ""
+        self.financeiro = ctx.can(Permission.FINANCE_OVERVIEW)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -89,6 +90,10 @@ class ChargesPage(QWidget):
         rapidos.setSpacing(8)
         self.quick_buttons: dict[str, QWidget] = {}
         for rotulo, valor in QUICK_FILTERS:
+            # O atalho "ATRASADOS" é uma lista de inadimplentes: só existe para
+            # quem tem a visão financeira.
+            if valor == STATUS_LATE and not self.financeiro:
+                continue
             botao = button(rotulo, ghost=True)
             botao.setCheckable(True)
             botao.clicked.connect(lambda _=False, v=valor: self._set_quick(v))
@@ -231,6 +236,7 @@ class ChargesPage(QWidget):
             inicio=inicio,
             fim=fim,
             por_vencimento=bool(self.date_field.currentData()),
+            actor=self.ctx.user,
         )
         self.table.fill(
             [
@@ -249,11 +255,14 @@ class ChargesPage(QWidget):
                 for row in linhas
             ]
         )
-        total = sum((row.valor for row in linhas if not row.cancelado), ZERO)
-        self.footer.setText(
-            f"{len(linhas)} documento(s) — total não cancelado {format_brl(total)}. "
-            "Dois cliques na linha reimprime o documento."
-        )
+        # O somatório dos documentos é valor consolidado da loja: fica só para
+        # quem tem a visão financeira. O funcionário vê a contagem e opera.
+        if self.ctx.can(Permission.FINANCE_OVERVIEW):
+            total = sum((row.valor for row in linhas if not row.cancelado), ZERO)
+            resumo = f"{len(linhas)} documento(s) — total não cancelado {format_brl(total)}. "
+        else:
+            resumo = f"{len(linhas)} documento(s). "
+        self.footer.setText(resumo + "Dois cliques na linha reimprime o documento.")
 
     # ---- ações ------------------------------------------------------
 

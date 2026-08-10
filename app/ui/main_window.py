@@ -27,8 +27,10 @@ from app.ui.clients import ClientsPage
 from app.ui.context import AppContext
 from app.ui.credits import CreditsPage
 from app.ui.dashboard import DashboardPage
+from app.ui.issue_charge import IssueChargePage
 from app.ui.late import LatePage
 from app.ui.payments import PaymentsPage
+from app.ui.receive_payment import ReceivePaymentPage
 from app.ui.reports import ReportsPage
 from app.ui.settings import SettingsPage
 from app.ui.staff_home import StaffHomePage
@@ -43,10 +45,12 @@ MENU: list[tuple[str, str, Permission | None]] = [
     ("CLIENTES", "users", Permission.CLIENT_VIEW),
     ("NOVO CREDIÁRIO", "plus", Permission.CREDIT_CREATE),
     ("CREDIÁRIOS", "list", Permission.CREDIT_VIEW),
-    ("BOLETOS", "receipt", Permission.CHARGE_VIEW),
-    ("ATRASADOS", "alert", Permission.REPORT_FULL),
+    ("REGISTRAR PAGAMENTO", "cash", Permission.PAYMENT_REGISTER),
+    ("GERAR BOLETO", "receipt", Permission.CHARGE_ISSUE),
+    ("BOLETOS", "list", Permission.CHARGE_VIEW),
+    ("ATRASADOS", "alert", Permission.FINANCE_OVERVIEW),
     ("RECEBIMENTOS", "cash", Permission.PAYMENT_REGISTER),
-    ("RELATÓRIOS", "chart", Permission.REPORT_FULL),
+    ("RELATÓRIOS", "chart", Permission.FINANCE_OVERVIEW),
     ("BACKUP", "shield", Permission.BACKUP_RESTORE),
     ("CONFIGURAÇÕES", "gear", Permission.SETTINGS),
 ]
@@ -83,15 +87,16 @@ class MainWindow(QMainWindow):
         self.payments_page = PaymentsPage(self.ctx)
 
         # O administrador começa no painel; o funcionário, no terminal simples.
-        self.is_admin_view = self.ctx.can(Permission.REPORT_FULL)
+        self.is_admin_view = self.ctx.can(Permission.FINANCE_OVERVIEW)
         if self.is_admin_view:
             self.home_page: QWidget = DashboardPage(self.ctx)
         else:
             home = StaffHomePage(self.ctx)
             home.new_client.connect(self._staff_new_client)
-            home.register_payment.connect(self._staff_register_payment)
             home.search_client.connect(self._staff_search_client)
-            home.receipts.connect(self._staff_receipts)
+            home.register_payment.connect(self._staff_register_payment)
+            home.issue_charge.connect(self._staff_issue_charge)
+            home.open_client.connect(self._staff_open_client)
             self.home_page = home
 
         self.pages: dict[str, QWidget] = {"INÍCIO": self.home_page}
@@ -99,11 +104,15 @@ class MainWindow(QMainWindow):
             self.pages["CLIENTES"] = self.clients_page
         if self.ctx.can(Permission.CREDIT_VIEW):
             self.pages["CREDIÁRIOS"] = self.credits_page
+        if self.ctx.can(Permission.PAYMENT_REGISTER):
+            self.pages["REGISTRAR PAGAMENTO"] = ReceivePaymentPage(self.ctx)
+        if self.ctx.can(Permission.CHARGE_ISSUE):
+            self.pages["GERAR BOLETO"] = IssueChargePage(self.ctx)
         if self.ctx.can(Permission.CHARGE_VIEW):
             self.pages["BOLETOS"] = ChargesPage(self.ctx)
         if self.ctx.can(Permission.PAYMENT_REGISTER):
             self.pages["RECEBIMENTOS"] = self.payments_page
-        if self.ctx.can(Permission.REPORT_FULL):
+        if self.ctx.can(Permission.FINANCE_OVERVIEW):
             self.pages["ATRASADOS"] = LatePage(self.ctx)
             self.pages["RELATÓRIOS"] = ReportsPage(self.ctx)
         if self.ctx.can(Permission.BACKUP_RESTORE):
@@ -190,7 +199,7 @@ class MainWindow(QMainWindow):
             ("Ctrl+F", self._staff_search_client, Permission.CLIENT_VIEW),
             ("Ctrl+N", self._staff_new_client, Permission.CLIENT_CREATE),
             ("Ctrl+R", self._staff_register_payment, Permission.PAYMENT_REGISTER),
-            ("Ctrl+P", self._staff_receipts, Permission.RECEIPT_ISSUE),
+            ("Ctrl+B", self._staff_issue_charge, Permission.CHARGE_ISSUE),
         )
         for sequencia, alvo, permissao in atalhos:
             if not self.ctx.can(permissao):
@@ -224,21 +233,22 @@ class MainWindow(QMainWindow):
             page.focus_search()
 
     def _staff_register_payment(self) -> None:
-        """Do balcão para o pagamento: pesquisa do cliente já em foco."""
+        """Vai direto para a tela de recebimento, com a busca em foco."""
+        page = self._go("REGISTRAR PAGAMENTO")
+        if page is not None:
+            page.search.setFocus()
+
+    def _staff_issue_charge(self) -> None:
+        """Vai direto para a tela operacional de emissão, com a busca em foco."""
+        page = self._go("GERAR BOLETO")
+        if page is not None:
+            page.search.setFocus()
+
+    def _staff_open_client(self, client_id: int) -> None:
+        """Abre a ficha de um cadastro recente, sem passar pela busca."""
         page = self._go("CLIENTES")
         if page is not None:
-            page.focus_search()
-            self.ctx.notify(
-                "Pesquise o cliente, abra a ficha e escolha a parcela para receber."
-            )
-
-    def _staff_receipts(self) -> None:
-        """Vai para BOLETOS, onde estão cobranças, recebimento e comprovante."""
-        page = self._go("BOLETOS") or self._go("RECEBIMENTOS")
-        if page is not None:
-            self.ctx.notify(
-                "Selecione o documento e use Receber pagamento ou Comprovante."
-            )
+            page.open_client(client_id)
 
     def _navigate(self, index: int) -> None:
         if not 0 <= index < len(self.menu_labels):

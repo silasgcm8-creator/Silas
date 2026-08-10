@@ -10,6 +10,7 @@ from app.database.connection import session_scope
 from app.models.credit import Credit
 from app.models.installment import Installment
 from app.models.log import LogAction
+from app.models.status import InstallmentStatus
 from app.repositories.client_repository import ClientRepository
 from app.repositories.credit_repository import CreditRepository
 from app.repositories.installment_repository import InstallmentRepository
@@ -50,8 +51,10 @@ class CreditRow:
     entrada: Decimal
     parcelas: int
     pagas: int
-    saldo: Decimal
-    vencido: Decimal
+    #: ``None`` quando quem pediu não tem a visão financeira — nesse caso o
+    #: banco também não soma nada.
+    saldo: Decimal | None
+    vencido: Decimal | None
     criado_em: date | None
 
 
@@ -82,6 +85,14 @@ class CreditDetail:
     @property
     def vencido(self) -> Decimal:
         return sum((i.valor for i in self.installments if i.status == "ATRASADO"), ZERO)
+
+
+def _status_sem_atraso(item: Installment, reference: date) -> str:
+    """PAGO continua PAGO; vencida ou a vencer, tudo é ``EM ABERTO``."""
+    situacao = item.status(reference)
+    if situacao is InstallmentStatus.PAID:
+        return situacao.value
+    return InstallmentStatus.OPEN.value
 
 
 def create_credit(
@@ -155,9 +166,15 @@ def create_credit(
         return credit.id
 
 
-def list_credits(term: str = "", reference: date | None = None) -> list[CreditRow]:
+def list_credits(
+    term: str = "", reference: date | None = None, actor: SessionUser | None = None
+) -> list[CreditRow]:
+    """Sem ``actor`` é chamada interna. Com ele, o perfil decide o que sai."""
+    financeiro = actor is None or actor.can(Permission.FINANCE_OVERVIEW)
     with session_scope() as session:
-        rows = CreditRepository(session).list_with_balances(term, reference)
+        rows = CreditRepository(session).list_with_balances(
+            term, reference, include_financials=financeiro
+        )
         result: list[CreditRow] = []
         for row in rows:
             result.append(
@@ -171,8 +188,8 @@ def list_credits(term: str = "", reference: date | None = None) -> list[CreditRo
                     entrada=to_decimal(row.entrada),
                     parcelas=int(row.parcelas),
                     pagas=int(row.pagas or 0),
-                    saldo=from_cents(row.saldo),
-                    vencido=from_cents(row.vencido),
+                    saldo=from_cents(row.saldo) if financeiro else None,
+                    vencido=from_cents(row.vencido) if financeiro else None,
                     criado_em=row.criado_em.date() if row.criado_em else None,
                 )
             )
@@ -198,8 +215,18 @@ def list_by_client(cliente_id: int, reference: date | None = None) -> list[dict[
         ]
 
 
-def get_detail(credit_id: int, reference: date | None = None) -> CreditDetail:
+def get_detail(
+    credit_id: int, reference: date | None = None, actor: SessionUser | None = None
+) -> CreditDetail:
+    """Ficha do crediário com as parcelas.
+
+    O funcionário precisa da lista para escolher qual parcela receber, então ela
+    continua vindo inteira: número, vencimento, valor e se está paga. O que sai
+    é o sinal de inadimplência — sem a visão financeira, uma parcela vencida
+    aparece como ``EM ABERTO`` e sem dias de atraso.
+    """
     reference = reference or date.today()
+    atrasos = actor is None or actor.can(Permission.FINANCE_OVERVIEW)
     with session_scope() as session:
         credit = CreditRepository(session).get_with_client(credit_id)
         if credit is None:
@@ -214,8 +241,10 @@ def get_detail(credit_id: int, reference: date | None = None) -> CreditDetail:
                 valor=item.valor,
                 pago=item.pago,
                 pago_em=item.pago_em,
-                status=item.status(reference).value,
-                dias_atraso=item.dias_atraso(reference),
+                status=item.status(reference).value
+                if atrasos
+                else _status_sem_atraso(item, reference),
+                dias_atraso=item.dias_atraso(reference) if atrasos else 0,
             )
             for item in installments
         ]

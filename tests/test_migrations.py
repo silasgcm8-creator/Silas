@@ -78,8 +78,8 @@ def test_migracao_limpa_pagamento_duplicado_e_cria_o_indice(admin, cliente):
         connection.execute(
             sa.text(
                 "INSERT INTO pagamentos (parcela_id, crediario_id, cliente_id, valor, "
-                "data_pagamento, usuario_nome, criado_em, codigo, forma_pagamento) "
-                "VALUES (:p, :c, :cl, :v, :d, 'duplicado', :agora, '', '')"
+                "data_pagamento, usuario_nome, criado_em, codigo, forma_pagamento, observacao) "
+                "VALUES (:p, :c, :cl, :v, :d, 'duplicado', :agora, '', '', '')"
             ),
             {
                 "p": parcela.id,
@@ -92,12 +92,12 @@ def test_migracao_limpa_pagamento_duplicado_e_cria_o_indice(admin, cliente):
         )
 
     hoje = date.today()
-    assert payment_service.total_received(hoje, hoje) == Decimal("400.00")  # caixa inflado
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("400.00")  # caixa inflado
 
     run_migrations()
 
     assert UNIQUE_PAYMENT_INDEX in _indexes()
-    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")
     with session_scope() as session:
         assert session.get(Setting, KEY_SCHEMA).valor == str(SCHEMA_VERSION)
 

@@ -17,7 +17,7 @@ router = APIRouter(tags=["Crediários"])
 @router.get("/crediarios", response_model=list[CreditOut])
 def list_credits(
     busca: str = "",
-    _: SessionUser = Depends(require_permission(Permission.CREDIT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.CREDIT_VIEW)),
 ) -> list[CreditOut]:
     return [
         CreditOut(
@@ -31,19 +31,22 @@ def list_credits(
             saldo=row.saldo,
             vencido=row.vencido,
         )
-        for row in credit_service.list_credits(busca)
+        for row in credit_service.list_credits(busca, actor=user)
     ]
 
 
 @router.get("/crediarios/{credit_id}", response_model=CreditDetailOut)
 def credit_detail(
     credit_id: int,
-    _: SessionUser = Depends(require_permission(Permission.CREDIT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.CREDIT_VIEW)),
 ) -> CreditDetailOut:
     try:
-        detail = credit_service.get_detail(credit_id)
+        detail = credit_service.get_detail(credit_id, actor=user)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    # `saldo` e `vencido` são somas do crediário inteiro. Sem a visão
+    # financeira saem como `null` — e não como zero, que seria informação falsa.
+    financeiro = user.can(Permission.FINANCE_OVERVIEW)
     return CreditDetailOut(
         id=detail.id,
         cliente=detail.cliente,
@@ -52,8 +55,8 @@ def credit_detail(
         valor_total=detail.valor_total,
         entrada=detail.entrada,
         parcelas=detail.parcelas,
-        saldo=detail.saldo,
-        vencido=detail.vencido,
+        saldo=detail.saldo if financeiro else None,
+        vencido=detail.vencido if financeiro else None,
         itens=[
             InstallmentOut(
                 id=item.id,
@@ -72,8 +75,9 @@ def credit_detail(
 @router.get("/atrasados", response_model=list[LateOut])
 def late(
     ordem: str = "maior_valor_vencido",
-    _: SessionUser = Depends(require_permission(Permission.CREDIT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.FINANCE_OVERVIEW)),
 ) -> list[LateOut]:
+    """Inadimplência da loja. Bloqueada para o funcionário (403) antes da consulta."""
     return [
         LateOut(
             cliente_id=row.cliente_id,
@@ -86,15 +90,16 @@ def late(
             vencimento_antigo=row.vencimento_antigo,
             dias_atraso=row.dias_atraso,
         )
-        for row in report_service.late_clients(ordem)
+        for row in report_service.late_clients(user, ordem)
     ]
 
 
 @router.get("/painel", response_model=DashboardOut)
 def dashboard(
-    _: SessionUser = Depends(require_permission(Permission.REPORT_VIEW)),
+    user: SessionUser = Depends(require_permission(Permission.FINANCE_OVERVIEW)),
 ) -> DashboardOut:
-    data = report_service.dashboard()
+    """Indicadores consolidados. Exclusivos do administrador."""
+    data = report_service.dashboard(user)
     return DashboardOut(
         total_a_receber=data.total_a_receber,
         total_vencido=data.total_vencido,

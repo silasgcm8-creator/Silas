@@ -157,7 +157,7 @@ class ReportsPage(QWidget):
 
     def refresh(self) -> None:
         start, end = self.range()
-        data = report_service.report(start, end)
+        data = report_service.report(self.ctx.user, start, end)
         self.card_vendido.set_value(format_brl(data.total_vendido))
         self.card_recebido.set_value(format_brl(data.total_recebido), color=GREEN)
         self.card_receber.set_value(format_brl(data.total_a_receber))
@@ -176,7 +176,7 @@ class ReportsPage(QWidget):
                     date_item(row.vencimento),
                     money_item(row.valor),
                 ]
-                for row in report_service.upcoming(limit=40)
+                for row in report_service.upcoming(self.ctx.user, limit=40)
             ]
         )
         self._refresh_reversals(start, end)
@@ -196,7 +196,7 @@ class ReportsPage(QWidget):
         return path
 
     def _refresh_reversals(self, start, end) -> None:  # noqa: ANN001
-        estornos = payment_service.list_reversals(start, end)
+        estornos = payment_service.list_reversals(self.ctx.user, start, end)
         self.reversals_table.fill(
             [
                 [
@@ -211,7 +211,7 @@ class ReportsPage(QWidget):
                 for item in estornos
             ]
         )
-        total = report_service.total_reversed(start, end)
+        total = report_service.total_reversed(self.ctx.user, start, end)
         self.reversed_label.setText(format_brl(total))
         self.reversed_label.setStyleSheet(f"color: {RED};")
         self.reversals_hint.setText(
@@ -228,7 +228,7 @@ class ReportsPage(QWidget):
         if not path:
             return
         try:
-            report_service.export_reversals(path, start, end, fmt)
+            report_service.export_reversals(self.ctx.user, path, start, end, fmt)
         except Exception as exc:  # noqa: BLE001 - feedback direto ao usuário
             error(self, "Exportação", f"Não foi possível exportar: {exc}")
             return
@@ -240,7 +240,9 @@ class ReportsPage(QWidget):
         if not path:
             return
         try:
-            report_service.export_report(path, report_service.report(start, end), self._fmt())
+            report_service.export_report(
+                self.ctx.user, path, report_service.report(self.ctx.user, start, end), self._fmt()
+            )
         except Exception as exc:  # noqa: BLE001
             error(self, "Exportação", f"Não foi possível exportar: {exc}")
             return
@@ -251,7 +253,7 @@ class ReportsPage(QWidget):
         if not path:
             return
         try:
-            report_service.export_receivables(path, self._fmt())
+            report_service.export_receivables(self.ctx.user, path, self._fmt())
         except Exception as exc:  # noqa: BLE001
             error(self, "Exportação", f"Não foi possível exportar: {exc}")
             return

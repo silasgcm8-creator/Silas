@@ -35,6 +35,11 @@ def client_search_filter(term: str):  # noqa: ANN201
         digits_like = f"%{digits}%"
         conditions.append(_digits_expr(Client.cpf).like(digits_like))
         conditions.append(_digits_expr(Client.telefone).like(digits_like))
+        # Código interno: só quando o termo inteiro é numérico ("000007" ou
+        # "7"). Um nome com número dentro ("Casa 7") continua sendo busca por
+        # nome — senão a pesquisa traria um cadastro alheio junto.
+        if term.isdigit() and len(digits) <= 9:
+            conditions.append(Client.id == int(digits))
     return sa.or_(*conditions)
 
 
@@ -82,6 +87,16 @@ class ClientRepository(BaseRepository[Client]):
     def count_active(self) -> int:
         return int(self.session.scalar(sa.select(sa.func.count(Client.id)).where(ACTIVE)) or 0)
 
+    def list_recent(self, limit: int = 10) -> Sequence[Client]:
+        """Cadastros mais novos primeiro. Nenhuma junção com dados financeiros."""
+        stmt = (
+            sa.select(Client)
+            .where(ACTIVE)
+            .order_by(Client.criado_em.desc(), Client.id.desc())
+            .limit(limit)
+        )
+        return self.session.scalars(stmt).all()
+
     def list_deleted(self, limit: int = 200) -> Sequence[Client]:
         stmt = (
             sa.select(Client)
@@ -97,8 +112,14 @@ class ClientRepository(BaseRepository[Client]):
         reference: date | None = None,
         limit: int = 500,
         offset: int = 0,
+        include_financials: bool = True,
     ) -> Sequence[sa.Row]:
-        """Clientes com saldo devedor e valor vencido calculados no banco."""
+        """Clientes com saldo devedor e valor vencido calculados no banco.
+
+        Com ``include_financials=False`` o banco **não soma nada**: as colunas
+        de dinheiro saem zeradas na própria consulta. É o que a busca do balcão
+        usa — encontrar o cliente não exige saber quanto ele deve.
+        """
         reference = reference or date.today()
         open_value = sa.case((Installment.pago.is_(False), Installment.valor), else_=0)
         overdue_value = sa.case(
@@ -108,14 +129,16 @@ class ClientRepository(BaseRepository[Client]):
             ),
             else_=0,
         )
+        saldo = sum_cents(open_value) if include_financials else sa.literal(0)
+        vencido = sum_cents(overdue_value) if include_financials else sa.literal(0)
         stmt = (
             sa.select(
                 Client.id,
                 Client.nome,
                 Client.cpf,
                 Client.telefone,
-                sum_cents(open_value).label("saldo"),
-                sum_cents(overdue_value).label("vencido"),
+                saldo.label("saldo"),
+                vencido.label("vencido"),
                 sa.func.count(sa.distinct(Credit.id)).label("crediarios"),
             )
             .select_from(Client)

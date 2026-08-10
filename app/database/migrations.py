@@ -94,6 +94,10 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
 NEW_COLUMNS["pagamentos"]["forma_pagamento"] = "VARCHAR(24) DEFAULT ''"
 NEW_COLUMNS["pagamentos"]["documento_id"] = "INTEGER"
 
+#: Observação operacional do recebimento (esquema 6). Puramente aditiva: os
+#: recebimentos já gravados ficam com texto vazio.
+NEW_COLUMNS["pagamentos"]["observacao"] = "VARCHAR(300) NOT NULL DEFAULT ''"
+
 
 def _add_missing_columns() -> None:
     """Acrescenta colunas novas sem tocar nos dados já gravados."""

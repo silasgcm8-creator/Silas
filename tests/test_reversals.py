@@ -60,13 +60,13 @@ def test_estorno_nao_apaga_o_pagamento(admin, paga):
 def test_estorno_tira_o_valor_do_caixa(admin, paga):
     parcela_id, _ = paga
     hoje = date.today()
-    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")
 
     payment_service.reverse_payment(parcela_id, "Erro de digitação no valor", admin)
 
-    assert payment_service.total_received(hoje, hoje) == Decimal("0.00")
-    assert payment_service.list_payments(hoje, hoje) == []
-    assert report_service.dashboard().recebido_no_mes == Decimal("0.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("0.00")
+    assert payment_service.list_payments(hoje, hoje, actor=admin) == []
+    assert report_service.dashboard(admin).recebido_no_mes == Decimal("0.00")
 
 
 def test_estorno_guarda_motivo_autor_e_momento(admin, paga):
@@ -74,7 +74,7 @@ def test_estorno_guarda_motivo_autor_e_momento(admin, paga):
     payment_service.reverse_payment(parcela_id, "Duplicidade no caixa", admin)
 
     hoje = date.today()
-    estornos = payment_service.list_reversals(hoje, hoje)
+    estornos = payment_service.list_reversals(admin, hoje, hoje)
     assert len(estornos) == 1
     estorno = estornos[0]
     assert estorno.motivo == "Duplicidade no caixa"
@@ -100,7 +100,7 @@ def test_motivo_do_estorno_e_obrigatorio(admin, paga):
             payment_service.reverse_payment(parcela_id, invalido, admin)
 
     # Nada foi estornado: a parcela continua paga.
-    assert payment_service.total_received(date.today(), date.today()) == Decimal("200.00")
+    assert payment_service.total_received(date.today(), date.today(), actor=admin) == Decimal("200.00")
 
 
 def test_parcela_estornada_pode_ser_paga_de_novo(admin, paga, crediario):
@@ -111,7 +111,7 @@ def test_parcela_estornada_pode_ser_paga_de_novo(admin, paga, crediario):
     novo_pagamento = payment_service.mark_as_paid(parcela_id, admin)
 
     hoje = date.today()
-    assert payment_service.total_received(hoje, hoje) == Decimal("200.00")
+    assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")
     assert credit_service.get_detail(crediario).installments[0].status == "PAGO"
 
     with session_scope() as session:
@@ -140,14 +140,14 @@ def test_relatorio_de_estornos_e_exportacao(admin, paga, tmp_path):
     payment_service.reverse_payment(parcela_id, "Cobrança em duplicidade", admin)
 
     hoje = date.today()
-    assert report_service.total_reversed(hoje, hoje) == Decimal("200.00")
+    assert report_service.total_reversed(admin, hoje, hoje) == Decimal("200.00")
 
-    linhas = report_service.reversals_rows(hoje, hoje)
+    linhas = report_service.reversals_rows(admin, hoje, hoje)
     assert len(linhas) == 1
     assert "Cobrança em duplicidade" in linhas[0]
 
     destino = tmp_path / "estornos.csv"
-    report_service.export_reversals(destino, hoje, hoje, "csv")
+    report_service.export_reversals(admin, destino, hoje, hoje, "csv")
     conteudo = destino.read_text(encoding="utf-8-sig")
     assert "Motivo" in conteudo
     assert "Cobrança em duplicidade" in conteudo
@@ -156,5 +156,5 @@ def test_relatorio_de_estornos_e_exportacao(admin, paga, tmp_path):
 
 def test_periodo_sem_estorno_fica_zerado(admin, paga):
     hoje = date.today()
-    assert report_service.total_reversed(hoje, hoje) == Decimal("0.00")
-    assert report_service.reversals_rows(hoje, hoje) == []
+    assert report_service.total_reversed(admin, hoje, hoje) == Decimal("0.00")
+    assert report_service.reversals_rows(admin, hoje, hoje) == []

@@ -84,12 +84,17 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 | Criar cobrança, imprimir e reimprimir | ✔ | ✔ |
 | Receber pagamento e imprimir comprovante | ✔ | ✔ |
 | Cancelar documento de cobrança | ✔ | — |
+| Tela BOLETOS (filtros, histórico, todos os clientes) | ✔ | — |
 | Cadastrar / alterar contas bancárias | ✔ | — |
 | Configurar modalidades de cobrança | ✔ | — |
-| Abrir WhatsApp | ✔ | ✔ |
+| Conferir os recebimentos que ele mesmo registrou | ✔ | ✔ |
 | Estornar pagamento | ✔ | — |
 | Excluir cliente | ✔ | — |
-| Ver atrasados e relatórios | ✔ | — |
+| **Painel financeiro e valores totais** | ✔ | — |
+| **Atrasados, inadimplência e dias de atraso** | ✔ | — |
+| **Relatórios e exportações financeiras** | ✔ | — |
+| **Total recebido pela loja no período** | ✔ | — |
+| Abrir cobrança pelo WhatsApp | ✔ | — |
 | Restaurar backup | ✔ | — |
 | Verificar banco de dados | ✔ | — |
 | Configurar empresa, Pix e backup | ✔ | — |
@@ -98,8 +103,40 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 As regras são conferidas **nos serviços**, não apenas na interface: o funcionário
 não contorna nenhuma delas nem chamando o código direto ou pela API do celular.
 Ele também não vê os menus administrativos — a tela inicial dele é um terminal
-com quatro ações grandes (**Novo cliente**, **Registrar pagamento**, **Pesquisar
-cliente**, **Comprovantes**) e atalhos `Ctrl+N`, `Ctrl+R`, `Ctrl+F` e `Ctrl+P`.
+com quatro ações grandes (**Novo cadastro** `Ctrl+N`, **Buscar cliente**
+`Ctrl+F`, **Registrar pagamento** `Ctrl+R` e **Gerar boleto** `Ctrl+B`) e a
+lista de **cadastros recentes**, com código, nome, telefone e data — dois
+cliques na linha abrem a ficha. Além do nome, do CPF e do telefone, a busca
+aceita o **código interno** do cadastro (`7` ou `000007`).
+
+A tela **REGISTRAR PAGAMENTO** é o caixa do balcão em cinco passos — buscar o
+cliente, escolher a parcela, informar data, forma de pagamento e observação,
+confirmar e emitir o comprovante. O valor é o da parcela e sai como rótulo, não
+como campo: o sistema baixa parcelas inteiras, e a data não pode ser futura.
+Nada de saldo do cliente, atraso ou total de caixa.
+
+A tela **GERAR BOLETO** é o fluxo do balcão em quatro passos — buscar o cliente,
+escolher a parcela, gerar, imprimir — e mostra apenas as parcelas em aberto
+**daquele** cliente, sem coluna de situação, sem filtros e sem documentos de
+terceiros. A tela **BOLETOS** — filtros, histórico, período e cancelamento —
+continua existindo para a gestão, e é do administrador.
+
+**Situação financeira da loja é do dono.** Qualquer número que descreva o
+negócio como um todo — total a receber, total recebido, valor vencido, clientes
+em atraso, dias de atraso — passa por uma única permissão
+(`financeiro.visao_global`), conferida **antes da consulta ao banco**. Para o
+funcionário esses componentes não aparecem zerados: eles não existem. Na tela de
+**Recebimentos** ele vê apenas os pagamentos que ele mesmo registrou, o
+suficiente para conferir a operação e reimprimir o comprovante. Na API local, os
+endereços `/painel` e `/atrasados` respondem **403** ao token dele, sem devolver
+dado algum junto.
+
+**Nem somando linha a linha.** As listas de clientes e de crediários também não
+carregam dinheiro para o funcionário: saldo e valor vencido saem `null` (não
+zero) e o banco sequer os calcula na consulta. Uma parcela atrasada aparece para
+ele como **EM ABERTO**, sem dias de atraso — ele precisa escolher a parcela para
+receber, não saber que o cliente está inadimplente. Número, vencimento, valor e
+"paga ou não" continuam visíveis, que é o necessário para atender.
 
 ---
 
@@ -142,9 +179,16 @@ modo que a soma feche exatamente com o valor financiado.
 
 ## Passo 7 — Registrar um pagamento
 
-1. Abra o crediário (em **CREDIÁRIOS**, na ficha do cliente ou pelo painel)
-2. Clique na parcela desejada
-3. Botão **Marcar como pago**
+Pelo caminho do balcão, em **REGISTRAR PAGAMENTO** (`Ctrl+R`):
+
+1. Busque o cliente por nome, CPF, telefone ou código
+2. Escolha a parcela recebida
+3. Informe **data**, **forma de pagamento** e uma **observação** (opcional)
+4. **Registrar pagamento** e confirme
+5. **Comprovante** imprime o PDF para o cliente
+
+Pelo crediário, abra a ficha em **CREDIÁRIOS**, clique na parcela e use
+**Marcar como pago**.
 
 Na mesma hora o sistema atualiza saldo do cliente, saldo do crediário, painel,
 relatórios, recebimentos e retira a parcela da lista de atrasados.

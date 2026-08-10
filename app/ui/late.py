@@ -89,7 +89,7 @@ class LatePage(QWidget):
 
     def refresh(self) -> None:
         order = self.order_combo.currentData() or "maior_valor_vencido"
-        self._rows = report_service.late_clients(order)
+        self._rows = report_service.late_clients(self.ctx.user, order)
         self.table.fill(
             [
                 [
@@ -136,4 +136,4 @@ class LatePage(QWidget):
         row = self._current()
         if row is None:
             return
-        open_charge_whatsapp(self, row.cliente_id, row.cliente, row.telefone)
+        open_charge_whatsapp(self.ctx, self, row.cliente_id, row.cliente, row.telefone)

@@ -49,8 +49,19 @@ class PaymentRepository(BaseRepository[Payment]):
         return int(self.session.scalar(stmt) or 0) + 1
 
     def list_period(
-        self, start: date, end: date, term: str = "", limit: int = 1000
+        self,
+        start: date,
+        end: date,
+        term: str = "",
+        limit: int = 1000,
+        usuario_id: int | None = None,
     ) -> Sequence[sa.Row]:
+        """Recebimentos do período.
+
+        ``usuario_id`` restringe o resultado às operações de um único operador —
+        é assim que o funcionário confere o que ele mesmo recebeu sem enxergar o
+        movimento de caixa da loja.
+        """
         stmt = (
             sa.select(
                 Payment.id,
@@ -75,6 +86,8 @@ class PaymentRepository(BaseRepository[Payment]):
             .order_by(Payment.data_pagamento.desc(), Payment.id.desc())
             .limit(limit)
         )
+        if usuario_id is not None:
+            stmt = stmt.where(Payment.usuario_id == usuario_id)
         term = (term or "").strip()
         if term:
             like = f"%{term}%"

@@ -1,4 +1,15 @@
-"""Permissões por papel."""
+"""Permissões por papel.
+
+Regra que sustenta o perfil FUNCIONÁRIO: qualquer número que descreva a
+**situação financeira global da loja** (totais, somatórios, indicadores) ou
+**inadimplência** (atrasos, dias em atraso, ranking de devedores) é protegido
+por uma única permissão — ``FINANCE_OVERVIEW``. Uma permissão só, e não duas
+parecidas, porque foi exatamente a existência de uma "versão fraca" desse
+direito que deixou o painel financeiro aberto para o funcionário.
+
+Quem precisa desses números conferir, confere: os serviços chamam ``require``
+antes de tocar no banco. Esconder o botão na tela não é permissão.
+"""
 
 from __future__ import annotations
 
@@ -23,8 +34,10 @@ class Permission(str, Enum):
     CHARGE_VIEW = "cobranca.ver"
     BANK_MANAGE = "banco.gerenciar"
     WHATSAPP = "whatsapp.abrir"
-    REPORT_VIEW = "relatorio.ver"
-    REPORT_FULL = "relatorio.completo"
+    #: Visão financeira global e inadimplência: painel, relatórios, atrasados,
+    #: totais consolidados e qualquer somatório que ultrapasse o atendimento de
+    #: um cliente. Exclusiva do administrador.
+    FINANCE_OVERVIEW = "financeiro.visao_global"
     BACKUP_CREATE = "backup.criar"
     BACKUP_RESTORE = "backup.restaurar"
     USER_MANAGE = "usuario.gerenciar"
@@ -34,6 +47,15 @@ class Permission(str, Enum):
     API_CONTROL = "api.controlar"
 
 
+#: O balcão: atender, cadastrar, receber e emitir documento. Nada que revele a
+#: situação financeira da loja ou a inadimplência — nem o envio de cobrança por
+#: WhatsApp, que expõe valor vencido e dias de atraso.
+#:
+#: `CHARGE_VIEW` fica de fora de propósito: é a tela de **gestão** de cobranças,
+#: com filtros, histórico e os documentos de todos os clientes. O funcionário
+#: emite e reimprime pela tela GERAR BOLETO, recebe pela REGISTRAR PAGAMENTO e
+#: confere o próprio caixa em RECEBIMENTOS — cada uma trabalhando sobre um
+#: cliente de cada vez.
 STAFF_PERMISSIONS: frozenset[Permission] = frozenset(
     {
         Permission.CLIENT_VIEW,
@@ -45,9 +67,6 @@ STAFF_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.RECEIPT_ISSUE,
         Permission.SLIP_ISSUE,
         Permission.CHARGE_ISSUE,
-        Permission.CHARGE_VIEW,
-        Permission.WHATSAPP,
-        Permission.REPORT_VIEW,
         Permission.BACKUP_CREATE,
     }
 )
