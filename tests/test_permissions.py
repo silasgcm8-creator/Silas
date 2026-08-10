@@ -61,6 +61,7 @@ def test_funcionario_tem_menos_permissoes_que_o_administrador():
         Permission.DB_CHECK,
         Permission.FINANCE_OVERVIEW,
         Permission.WHATSAPP,
+        Permission.CHARGE_VIEW,
     }
     assert proibidas.isdisjoint(STAFF_PERMISSIONS)
 

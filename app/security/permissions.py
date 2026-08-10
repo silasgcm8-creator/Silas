@@ -50,6 +50,12 @@ class Permission(str, Enum):
 #: O balcão: atender, cadastrar, receber e emitir documento. Nada que revele a
 #: situação financeira da loja ou a inadimplência — nem o envio de cobrança por
 #: WhatsApp, que expõe valor vencido e dias de atraso.
+#:
+#: `CHARGE_VIEW` fica de fora de propósito: é a tela de **gestão** de cobranças,
+#: com filtros, histórico e os documentos de todos os clientes. O funcionário
+#: emite e reimprime pela tela GERAR BOLETO, recebe pela REGISTRAR PAGAMENTO e
+#: confere o próprio caixa em RECEBIMENTOS — cada uma trabalhando sobre um
+#: cliente de cada vez.
 STAFF_PERMISSIONS: frozenset[Permission] = frozenset(
     {
         Permission.CLIENT_VIEW,
@@ -61,7 +67,6 @@ STAFF_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.RECEIPT_ISSUE,
         Permission.SLIP_ISSUE,
         Permission.CHARGE_ISSUE,
-        Permission.CHARGE_VIEW,
         Permission.BACKUP_CREATE,
     }
 )

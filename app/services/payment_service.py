@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
+import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from app.database.connection import session_scope
+from app.models.installment import Installment
 from app.models.log import LogAction
 from app.models.payment import Payment
 from app.models.reversal import PaymentReversal
@@ -21,9 +23,9 @@ from app.repositories.reversal_repository import ReversalRepository
 from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
 from app.services import log_service
-from app.services.errors import BusinessError, NotFoundError
+from app.services.errors import BusinessError, NotFoundError, ValidationError
 from app.utils.money import format_brl, from_cents
-from app.utils.validators import validate_reversal_reason
+from app.utils.validators import validate_payment_note, validate_reversal_reason
 
 ALREADY_PAID = "Esta parcela já está marcada como paga."
 
@@ -78,18 +80,28 @@ def mark_as_paid(
     payment_date: date | None = None,
     forma_pagamento: str = "",
     documento_id: int | None = None,
+    observacao: str = "",
 ) -> int:
     """Marca a parcela como paga e registra o recebimento no caixa.
 
     Tudo acontece em uma única transação: baixa da parcela, recebimento e log.
     Se qualquer etapa falhar, nada é gravado.
 
+    A data do recebimento não pode ser futura: o caixa registra o que já
+    entrou, e uma data adiante desmontaria o fechamento do dia.
+
     Devolve o id do pagamento, usado para emitir o comprovante.
     """
     if actor:
         require(actor.role, Permission.PAYMENT_REGISTER)
     payment_date = payment_date or date.today()
+    if payment_date > date.today():
+        raise ValidationError(
+            "A data do recebimento não pode ser futura — registre o dia em que "
+            "o dinheiro entrou."
+        )
     forma = PaymentMethod.from_value(forma_pagamento).value if forma_pagamento else ""
+    observacao = validate_payment_note(observacao)
 
     with session_scope() as session:
         installments = InstallmentRepository(session)
@@ -125,6 +137,7 @@ def mark_as_paid(
             codigo=_build_code(payments, payment_date),
             forma_pagamento=forma,
             documento_id=documento_id,
+            observacao=observacao,
             usuario_id=actor.id if actor else None,
             usuario_nome=actor.nome if actor else "sistema",
         )
@@ -145,6 +158,7 @@ def mark_as_paid(
                 f" de {format_brl(valor)} (recebimento {payment.codigo}"
                 + (f", {payment_method_label(forma)}" if forma else "")
                 + ")"
+                + (f" — obs.: {observacao}" if observacao else "")
             ),
             cliente_id=cliente_id,
             crediario_id=credit_id,
@@ -221,6 +235,67 @@ def reverse_payment(
             parcela_id=installment_id,
         )
         return reversal.id
+
+
+@dataclass(frozen=True)
+class PayableRow:
+    """Parcela em aberto de **um** cliente, pronta para receber.
+
+    Contrato estreito de propósito: o que o caixa precisa para identificar a
+    parcela e conferir o valor. Sem situação de atraso, sem dias em atraso, sem
+    saldo do cliente — registrar um recebimento não é consultar inadimplência.
+    """
+
+    parcela_id: int
+    crediario_id: int
+    parcela: str
+    vencimento: date
+    valor: Decimal
+    #: Número da cobrança ativa da parcela, quando o cliente chegou com ela.
+    documento: str | None
+    documento_id: int | None
+
+
+def payable_for_client(client_id: int, actor: SessionUser) -> list[PayableRow]:
+    """Parcelas em aberto do cliente, da mais antiga para a mais nova."""
+    require(actor.role, Permission.PAYMENT_REGISTER)
+    from app.models.charge import ChargeDocument
+    from app.models.credit import Credit
+
+    with session_scope() as session:
+        ativo = ChargeDocument.cancelado_em.is_(None)
+        stmt = (
+            sa.select(
+                Installment.id,
+                Installment.numero,
+                Installment.vencimento,
+                Installment.valor,
+                Credit.id.label("crediario_id"),
+                Credit.parcelas,
+                ChargeDocument.id.label("documento_id"),
+                ChargeDocument.numero.label("documento"),
+            )
+            .select_from(Installment)
+            .join(Credit, Credit.id == Installment.crediario_id)
+            .outerjoin(
+                ChargeDocument,
+                sa.and_(ChargeDocument.parcela_id == Installment.id, ativo),
+            )
+            .where(Credit.cliente_id == client_id, Installment.pago.is_(False))
+            .order_by(Installment.vencimento, Installment.id)
+        )
+        return [
+            PayableRow(
+                parcela_id=row.id,
+                crediario_id=row.crediario_id,
+                parcela=f"{row.numero:02d}/{row.parcelas:02d}",
+                vencimento=row.vencimento,
+                valor=row.valor,
+                documento=row.documento,
+                documento_id=row.documento_id,
+            )
+            for row in session.execute(stmt).all()
+        ]
 
 
 def list_reversals(actor: SessionUser, start: date, end: date) -> list[ReversalRow]:

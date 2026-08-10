@@ -397,7 +397,9 @@ def test_estorno_do_pagamento_reabre_a_situacao(admin, parcelas):
 
 def test_funcionario_emite_e_recebe_mas_nao_cancela(admin, parcelas, funcionario):
     assert can(funcionario.role, Permission.CHARGE_ISSUE)
-    assert can(funcionario.role, Permission.CHARGE_VIEW)
+    # A tela de gestão de cobranças (filtros, histórico, documentos de todos os
+    # clientes) é do administrador; ele emite pela tela GERAR BOLETO.
+    assert not can(funcionario.role, Permission.CHARGE_VIEW)
     assert not can(funcionario.role, Permission.CHARGE_CANCEL)
     assert not can(funcionario.role, Permission.BANK_MANAGE)
 

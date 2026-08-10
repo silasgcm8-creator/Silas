@@ -84,6 +84,7 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 | Criar cobrança, imprimir e reimprimir | ✔ | ✔ |
 | Receber pagamento e imprimir comprovante | ✔ | ✔ |
 | Cancelar documento de cobrança | ✔ | — |
+| Tela BOLETOS (filtros, histórico, todos os clientes) | ✔ | — |
 | Cadastrar / alterar contas bancárias | ✔ | — |
 | Configurar modalidades de cobrança | ✔ | — |
 | Conferir os recebimentos que ele mesmo registrou | ✔ | ✔ |
@@ -108,12 +109,17 @@ lista de **cadastros recentes**, com código, nome, telefone e data — dois
 cliques na linha abrem a ficha. Além do nome, do CPF e do telefone, a busca
 aceita o **código interno** do cadastro (`7` ou `000007`).
 
+A tela **REGISTRAR PAGAMENTO** é o caixa do balcão em cinco passos — buscar o
+cliente, escolher a parcela, informar data, forma de pagamento e observação,
+confirmar e emitir o comprovante. O valor é o da parcela e sai como rótulo, não
+como campo: o sistema baixa parcelas inteiras, e a data não pode ser futura.
+Nada de saldo do cliente, atraso ou total de caixa.
+
 A tela **GERAR BOLETO** é o fluxo do balcão em quatro passos — buscar o cliente,
 escolher a parcela, gerar, imprimir — e mostra apenas as parcelas em aberto
 **daquele** cliente, sem coluna de situação, sem filtros e sem documentos de
-terceiros. A tela **BOLETOS**, com filtros, histórico e cancelamento, continua
-existindo para a gestão; nela o atalho **ATRASADOS** e a marcação de atraso são
-exclusivos do administrador.
+terceiros. A tela **BOLETOS** — filtros, histórico, período e cancelamento —
+continua existindo para a gestão, e é do administrador.
 
 **Situação financeira da loja é do dono.** Qualquer número que descreva o
 negócio como um todo — total a receber, total recebido, valor vencido, clientes
@@ -173,9 +179,16 @@ modo que a soma feche exatamente com o valor financiado.
 
 ## Passo 7 — Registrar um pagamento
 
-1. Abra o crediário (em **CREDIÁRIOS**, na ficha do cliente ou pelo painel)
-2. Clique na parcela desejada
-3. Botão **Marcar como pago**
+Pelo caminho do balcão, em **REGISTRAR PAGAMENTO** (`Ctrl+R`):
+
+1. Busque o cliente por nome, CPF, telefone ou código
+2. Escolha a parcela recebida
+3. Informe **data**, **forma de pagamento** e uma **observação** (opcional)
+4. **Registrar pagamento** e confirme
+5. **Comprovante** imprime o PDF para o cliente
+
+Pelo crediário, abra a ficha em **CREDIÁRIOS**, clique na parcela e use
+**Marcar como pago**.
 
 Na mesma hora o sistema atualiza saldo do cliente, saldo do crediário, painel,
 relatórios, recebimentos e retira a parcela da lista de atrasados.

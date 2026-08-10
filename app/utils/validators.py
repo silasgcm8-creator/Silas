@@ -73,6 +73,20 @@ def validate_reversal_reason(value: str | None) -> str:
     return motivo[:300]
 
 
+#: Cabe no campo do banco (VARCHAR(300)) e no rodapé do comprovante.
+PAYMENT_NOTE_LIMIT = 300
+
+
+def validate_payment_note(value: str | None) -> str:
+    """Observação do caixa: opcional, mas normalizada e limitada.
+
+    Diferente do motivo do estorno, não é obrigatória — o recebimento comum não
+    precisa de justificativa. Espaços em excesso e quebras de linha são
+    achatados para o texto caber em uma linha do comprovante.
+    """
+    return " ".join((value or "").split())[:PAYMENT_NOTE_LIMIT]
+
+
 def validate_installment_count(value: object) -> int:
     try:
         count = int(str(value).strip())

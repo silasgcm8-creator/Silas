@@ -255,6 +255,116 @@ def test_o_balcao_continua_funcionando_para_o_funcionario(funcionario):
     assert payment_service.mark_as_paid(parcela.id, funcionario) > 0
 
 
+# ---- REGISTRAR PAGAMENTO: o fluxo do caixa ---------------------------
+
+
+def test_parcelas_a_receber_sao_so_do_cliente_escolhido(funcionario, admin, cliente, carteira):
+    outro = client_service.create_client(
+        "Outro Cliente", "111.444.777-35", "(62) 90000-0001", admin
+    )
+    credit_service.create_credit(
+        cliente_id=outro,
+        valor_total=Decimal("500.00"),
+        entrada=Decimal("0.00"),
+        parcelas=2,
+        primeiro_vencimento=HOJE,
+        actor=admin,
+    )
+
+    linhas = payment_service.payable_for_client(cliente, funcionario)
+
+    assert {linha.crediario_id for linha in linhas} == {carteira}
+    # A parcela já quitada não entra: não se recebe duas vezes.
+    assert len(linhas) == 2
+    campos = set(vars(linhas[0]))
+    assert campos == {
+        "parcela_id",
+        "crediario_id",
+        "parcela",
+        "vencimento",
+        "valor",
+        "documento",
+        "documento_id",
+    }
+
+
+def test_recebimento_guarda_forma_data_observacao_e_autor(funcionario, cliente, carteira):
+    from app.database.connection import session_scope
+    from app.models.payment import Payment
+
+    parcela = payment_service.payable_for_client(cliente, funcionario)[0]
+    ontem = HOJE - timedelta(days=1)
+
+    pagamento = payment_service.mark_as_paid(
+        parcela.parcela_id,
+        actor=funcionario,
+        payment_date=ontem,
+        forma_pagamento="PIX",
+        observacao="  cliente   pagou   em   duas   transferências \n ",
+    )
+
+    with session_scope() as session:
+        gravado = session.get(Payment, pagamento)
+        assert gravado.forma_pagamento == "PIX"
+        assert gravado.data_pagamento == ontem
+        assert gravado.valor == parcela.valor
+        assert gravado.usuario_id == funcionario.id
+        assert gravado.usuario_nome == funcionario.nome
+        # Espaços em excesso são achatados para caber no comprovante.
+        assert gravado.observacao == "cliente pagou em duas transferências"
+
+
+def test_recebimento_recusa_data_futura(funcionario, cliente, carteira):
+    from app.services.errors import ValidationError
+
+    parcela = payment_service.payable_for_client(cliente, funcionario)[0]
+    with pytest.raises(ValidationError):
+        payment_service.mark_as_paid(
+            parcela.parcela_id, actor=funcionario, payment_date=HOJE + timedelta(days=1)
+        )
+
+    # Nada foi gravado: a parcela continua disponível para receber.
+    ainda = payment_service.payable_for_client(cliente, funcionario)
+    assert parcela.parcela_id in {linha.parcela_id for linha in ainda}
+
+
+def test_a_mesma_parcela_nao_e_recebida_duas_vezes(funcionario, cliente, carteira):
+    from app.services.errors import BusinessError
+
+    parcela = payment_service.payable_for_client(cliente, funcionario)[0]
+    payment_service.mark_as_paid(parcela.parcela_id, actor=funcionario)
+
+    with pytest.raises(BusinessError):
+        payment_service.mark_as_paid(parcela.parcela_id, actor=funcionario)
+
+    assert parcela.parcela_id not in {
+        linha.parcela_id
+        for linha in payment_service.payable_for_client(cliente, funcionario)
+    }
+
+
+def test_observacao_do_caixa_entra_na_auditoria(funcionario, cliente, carteira):
+    from app.database.connection import session_scope
+    from app.models.log import LogAction
+    from app.services import log_service
+
+    parcela = payment_service.payable_for_client(cliente, funcionario)[0]
+    payment_service.mark_as_paid(
+        parcela.parcela_id,
+        actor=funcionario,
+        forma_pagamento="DINHEIRO",
+        observacao="pagou com nota de 200",
+    )
+
+    with session_scope() as session:
+        registros = log_service.latest(session, action=LogAction.INSTALLMENT_PAID)
+        assert registros
+        entrada = registros[0]
+        assert entrada.usuario_nome == funcionario.nome
+        assert "pagou com nota de 200" in (entrada.detalhes or "")
+        assert "Dinheiro" in (entrada.detalhes or "")
+
+
 # ---- GERAR BOLETO: o fluxo operacional -------------------------------
 
 

@@ -78,8 +78,8 @@ def test_migracao_limpa_pagamento_duplicado_e_cria_o_indice(admin, cliente):
         connection.execute(
             sa.text(
                 "INSERT INTO pagamentos (parcela_id, crediario_id, cliente_id, valor, "
-                "data_pagamento, usuario_nome, criado_em, codigo, forma_pagamento) "
-                "VALUES (:p, :c, :cl, :v, :d, 'duplicado', :agora, '', '')"
+                "data_pagamento, usuario_nome, criado_em, codigo, forma_pagamento, observacao) "
+                "VALUES (:p, :c, :cl, :v, :d, 'duplicado', :agora, '', '', '')"
             ),
             {
                 "p": parcela.id,

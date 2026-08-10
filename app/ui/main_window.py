@@ -30,6 +30,7 @@ from app.ui.dashboard import DashboardPage
 from app.ui.issue_charge import IssueChargePage
 from app.ui.late import LatePage
 from app.ui.payments import PaymentsPage
+from app.ui.receive_payment import ReceivePaymentPage
 from app.ui.reports import ReportsPage
 from app.ui.settings import SettingsPage
 from app.ui.staff_home import StaffHomePage
@@ -44,6 +45,7 @@ MENU: list[tuple[str, str, Permission | None]] = [
     ("CLIENTES", "users", Permission.CLIENT_VIEW),
     ("NOVO CREDIÁRIO", "plus", Permission.CREDIT_CREATE),
     ("CREDIÁRIOS", "list", Permission.CREDIT_VIEW),
+    ("REGISTRAR PAGAMENTO", "cash", Permission.PAYMENT_REGISTER),
     ("GERAR BOLETO", "receipt", Permission.CHARGE_ISSUE),
     ("BOLETOS", "list", Permission.CHARGE_VIEW),
     ("ATRASADOS", "alert", Permission.FINANCE_OVERVIEW),
@@ -102,6 +104,8 @@ class MainWindow(QMainWindow):
             self.pages["CLIENTES"] = self.clients_page
         if self.ctx.can(Permission.CREDIT_VIEW):
             self.pages["CREDIÁRIOS"] = self.credits_page
+        if self.ctx.can(Permission.PAYMENT_REGISTER):
+            self.pages["REGISTRAR PAGAMENTO"] = ReceivePaymentPage(self.ctx)
         if self.ctx.can(Permission.CHARGE_ISSUE):
             self.pages["GERAR BOLETO"] = IssueChargePage(self.ctx)
         if self.ctx.can(Permission.CHARGE_VIEW):
@@ -229,13 +233,10 @@ class MainWindow(QMainWindow):
             page.focus_search()
 
     def _staff_register_payment(self) -> None:
-        """Do balcão para o pagamento: pesquisa do cliente já em foco."""
-        page = self._go("CLIENTES")
+        """Vai direto para a tela de recebimento, com a busca em foco."""
+        page = self._go("REGISTRAR PAGAMENTO")
         if page is not None:
-            page.focus_search()
-            self.ctx.notify(
-                "Pesquise o cliente, abra a ficha e escolha a parcela para receber."
-            )
+            page.search.setFocus()
 
     def _staff_issue_charge(self) -> None:
         """Vai direto para a tela operacional de emissão, com a busca em foco."""
