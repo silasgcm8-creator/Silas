@@ -89,9 +89,10 @@ class MainWindow(QMainWindow):
         else:
             home = StaffHomePage(self.ctx)
             home.new_client.connect(self._staff_new_client)
-            home.register_payment.connect(self._staff_register_payment)
             home.search_client.connect(self._staff_search_client)
-            home.receipts.connect(self._staff_receipts)
+            home.register_payment.connect(self._staff_register_payment)
+            home.issue_charge.connect(self._staff_issue_charge)
+            home.open_client.connect(self._staff_open_client)
             self.home_page = home
 
         self.pages: dict[str, QWidget] = {"INÍCIO": self.home_page}
@@ -190,7 +191,7 @@ class MainWindow(QMainWindow):
             ("Ctrl+F", self._staff_search_client, Permission.CLIENT_VIEW),
             ("Ctrl+N", self._staff_new_client, Permission.CLIENT_CREATE),
             ("Ctrl+R", self._staff_register_payment, Permission.PAYMENT_REGISTER),
-            ("Ctrl+P", self._staff_receipts, Permission.RECEIPT_ISSUE),
+            ("Ctrl+B", self._staff_issue_charge, Permission.CHARGE_ISSUE),
         )
         for sequencia, alvo, permissao in atalhos:
             if not self.ctx.can(permissao):
@@ -232,13 +233,19 @@ class MainWindow(QMainWindow):
                 "Pesquise o cliente, abra a ficha e escolha a parcela para receber."
             )
 
-    def _staff_receipts(self) -> None:
-        """Vai para BOLETOS, onde estão cobranças, recebimento e comprovante."""
+    def _staff_issue_charge(self) -> None:
+        """Vai para BOLETOS, onde se emite a cobrança e se imprime o documento."""
         page = self._go("BOLETOS") or self._go("RECEBIMENTOS")
         if page is not None:
             self.ctx.notify(
-                "Selecione o documento e use Receber pagamento ou Comprovante."
+                "Localize a parcela do cliente e use Gerar cobrança para imprimir."
             )
+
+    def _staff_open_client(self, client_id: int) -> None:
+        """Abre a ficha de um cadastro recente, sem passar pela busca."""
+        page = self._go("CLIENTES")
+        if page is not None:
+            page.open_client(client_id)
 
     def _navigate(self, index: int) -> None:
         if not 0 <= index < len(self.menu_labels):

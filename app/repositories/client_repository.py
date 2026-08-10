@@ -35,6 +35,11 @@ def client_search_filter(term: str):  # noqa: ANN201
         digits_like = f"%{digits}%"
         conditions.append(_digits_expr(Client.cpf).like(digits_like))
         conditions.append(_digits_expr(Client.telefone).like(digits_like))
+        # Código interno: só quando o termo inteiro é numérico ("000007" ou
+        # "7"). Um nome com número dentro ("Casa 7") continua sendo busca por
+        # nome — senão a pesquisa traria um cadastro alheio junto.
+        if term.isdigit() and len(digits) <= 9:
+            conditions.append(Client.id == int(digits))
     return sa.or_(*conditions)
 
 
@@ -81,6 +86,16 @@ class ClientRepository(BaseRepository[Client]):
 
     def count_active(self) -> int:
         return int(self.session.scalar(sa.select(sa.func.count(Client.id)).where(ACTIVE)) or 0)
+
+    def list_recent(self, limit: int = 10) -> Sequence[Client]:
+        """Cadastros mais novos primeiro. Nenhuma junção com dados financeiros."""
+        stmt = (
+            sa.select(Client)
+            .where(ACTIVE)
+            .order_by(Client.criado_em.desc(), Client.id.desc())
+            .limit(limit)
+        )
+        return self.session.scalars(stmt).all()
 
     def list_deleted(self, limit: int = 200) -> Sequence[Client]:
         stmt = (

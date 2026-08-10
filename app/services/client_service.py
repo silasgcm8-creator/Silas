@@ -37,6 +37,31 @@ class DeletedClientRow:
     motivo: str
 
 
+#: Formato do código interno mostrado ao cliente e digitado na busca.
+CLIENT_CODE_WIDTH = 6
+
+
+def client_code(client_id: int) -> str:
+    """Código interno do cadastro: o `id` com zeros à esquerda (``000007``)."""
+    return f"{client_id:0{CLIENT_CODE_WIDTH}d}"
+
+
+@dataclass(frozen=True)
+class RecentClientRow:
+    """Cadastro recente para o terminal do balcão.
+
+    Só dados operacionais: identificar e ligar para o cliente. Nenhum valor,
+    nenhum saldo, nenhuma situação de pagamento — por construção, e não por
+    filtro na tela.
+    """
+
+    id: int
+    codigo: str
+    nome: str
+    telefone: str
+    cadastrado_em: datetime | None
+
+
 @dataclass(frozen=True)
 class ClientRow:
     """Linha da tela de clientes.
@@ -184,6 +209,29 @@ def list_clients(
                 crediarios=int(row.crediarios or 0),
             )
             for row in rows
+        ]
+
+
+def recent_clients(limit: int = 8, actor: SessionUser | None = None) -> list[RecentClientRow]:
+    """Últimos cadastros — o "CADASTROS RECENTES" do terminal do funcionário.
+
+    Exige apenas a permissão de ver clientes; devolve exclusivamente nome,
+    código, telefone e data. Nem para o administrador esta consulta traz
+    dinheiro: quem quer números usa o painel.
+    """
+    if actor is not None:
+        require(actor.role, Permission.CLIENT_VIEW)
+    limit = max(1, min(int(limit), 50))
+    with session_scope() as session:
+        return [
+            RecentClientRow(
+                id=row.id,
+                codigo=client_code(row.id),
+                nome=row.nome,
+                telefone=row.telefone,
+                cadastrado_em=row.criado_em,
+            )
+            for row in ClientRepository(session).list_recent(limit)
         ]
 
 

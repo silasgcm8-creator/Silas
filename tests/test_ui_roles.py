@@ -75,6 +75,31 @@ def test_home_do_funcionario_tem_as_quatro_acoes_grandes(qt_app, funcionario):
     assert len(botoes) == len(ACTIONS) == 4
     # Todas as quatro ações do balcão estão liberadas para o funcionário.
     assert all(botao.isEnabled() for botao in botoes)
+    rotulos = {botao.text().split("\n")[0] for botao in botoes}
+    assert rotulos == {
+        "NOVO CADASTRO",
+        "BUSCAR CLIENTE",
+        "REGISTRAR PAGAMENTO",
+        "GERAR BOLETO",
+    }
+
+
+def test_cadastros_recentes_aparecem_no_terminal(qt_app, funcionario, cliente):
+    from app.ui.context import AppContext
+    from app.ui.staff_home import StaffHomePage
+
+    pagina = StaffHomePage(AppContext(funcionario))
+    assert pagina.table.rowCount() == 1
+    colunas = [
+        pagina.table.horizontalHeaderItem(i).text()
+        for i in range(pagina.table.columnCount())
+    ]
+    assert colunas == ["Código", "Nome", "Telefone", "Cadastrado em"]
+
+    linha = [pagina.table.item(0, i).text() for i in range(4)]
+    assert linha[0] == f"{cliente:06d}"
+    assert "Maria" in linha[1]
+    assert "R$" not in " ".join(linha), "a lista não pode carregar dinheiro"
 
 
 def test_navegacao_do_funcionario_nao_alcanca_tela_administrativa(qt_app, funcionario):
@@ -83,7 +108,7 @@ def test_navegacao_do_funcionario_nao_alcanca_tela_administrativa(qt_app, funcio
     assert janela._go("BACKUP") is None
 
 
-def test_tela_inicial_do_funcionario_nao_tem_valor_nenhum(qt_app, funcionario):
+def test_tela_inicial_do_funcionario_nao_tem_valor_nenhum(qt_app, funcionario, cliente):
     """Nem zerado: o componente financeiro não deve existir para ele."""
     from PySide6.QtWidgets import QLabel
 
@@ -93,7 +118,10 @@ def test_tela_inicial_do_funcionario_nao_tem_valor_nenhum(qt_app, funcionario):
     pagina = StaffHomePage(AppContext(funcionario))
     pagina.refresh()
     textos = " ".join(rotulo.text() for rotulo in pagina.findChildren(QLabel))
-    for proibido in ("R$", "Recebido", "vencendo", "vencid", "atras"):
+    for linha in range(pagina.table.rowCount()):
+        for coluna in range(pagina.table.columnCount()):
+            textos += " " + pagina.table.item(linha, coluna).text()
+    for proibido in ("R$", "Recebido", "vencendo", "vencid", "atras", "saldo"):
         assert proibido not in textos, f"a tela do funcionário mostrou {proibido!r}"
 
 

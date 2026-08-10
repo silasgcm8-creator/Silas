@@ -102,8 +102,11 @@ Depois, em **CONFIGURAÇÕES → Usuários**, o administrador cadastra os funcio
 As regras são conferidas **nos serviços**, não apenas na interface: o funcionário
 não contorna nenhuma delas nem chamando o código direto ou pela API do celular.
 Ele também não vê os menus administrativos — a tela inicial dele é um terminal
-com quatro ações grandes (**Novo cliente**, **Registrar pagamento**, **Pesquisar
-cliente**, **Comprovantes**) e atalhos `Ctrl+N`, `Ctrl+R`, `Ctrl+F` e `Ctrl+P`.
+com quatro ações grandes (**Novo cadastro** `Ctrl+N`, **Buscar cliente**
+`Ctrl+F`, **Registrar pagamento** `Ctrl+R` e **Gerar boleto** `Ctrl+B`) e a
+lista de **cadastros recentes**, com código, nome, telefone e data — dois
+cliques na linha abrem a ficha. Além do nome, do CPF e do telefone, a busca
+aceita o **código interno** do cadastro (`7` ou `000007`).
 
 **Situação financeira da loja é do dono.** Qualquer número que descreva o
 negócio como um todo — total a receber, total recebido, valor vencido, clientes

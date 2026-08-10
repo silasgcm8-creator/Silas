@@ -197,6 +197,47 @@ def test_parcela_vencida_nao_denuncia_atraso_ao_funcionario(funcionario, admin, 
     assert abertas and abertas[0].valor > Decimal("0.00") and abertas[0].vencimento
 
 
+def test_cadastros_recentes_so_trazem_dado_operacional(funcionario, admin, cliente, carteira):
+    """O que o terminal do balcão lista: identificar e ligar para o cliente."""
+    recentes = client_service.recent_clients(actor=funcionario)
+
+    assert [linha.id for linha in recentes] == [cliente]
+    linha = recentes[0]
+    assert linha.codigo == f"{cliente:06d}"
+    assert linha.nome and linha.telefone and linha.cadastrado_em is not None
+
+    # O contrato não tem por onde vazar dinheiro: os campos não existem.
+    campos = set(vars(linha))
+    assert campos == {"id", "codigo", "nome", "telefone", "cadastrado_em"}
+
+
+def test_cadastros_recentes_vem_do_mais_novo_para_o_mais_antigo(funcionario, admin):
+    primeiro = client_service.create_client(
+        "Ana Primeira", "111.444.777-35", "(62) 90000-0001", admin
+    )
+    segundo = client_service.create_client(
+        "Bruno Segundo", "529.982.247-25", "(62) 90000-0002", admin
+    )
+    recentes = client_service.recent_clients(actor=funcionario)
+    assert [linha.id for linha in recentes][:2] == [segundo, primeiro]
+
+
+def test_busca_do_balcao_encontra_pelo_codigo_interno(funcionario, cliente):
+    """O funcionário digita o número impresso no documento."""
+    for termo in (str(cliente), f"{cliente:06d}", f"  {cliente}  "):
+        achados = client_service.list_clients(termo, actor=funcionario)
+        assert [linha.id for linha in achados] == [cliente], f"busca por {termo!r}"
+
+
+def test_nome_com_numero_nao_vira_busca_por_codigo(funcionario, admin, cliente):
+    """"Casa 1" é nome, não código: não pode trazer o cadastro de id 1 junto."""
+    alvo = client_service.create_client(
+        "Joana Casa 1", "111.444.777-35", "(62) 90000-0001", admin
+    )
+    achados = client_service.list_clients("Casa 1", actor=funcionario)
+    assert [linha.id for linha in achados] == [alvo]
+
+
 def test_o_balcao_continua_funcionando_para_o_funcionario(funcionario):
     """As restrições não podem travar o trabalho do dia a dia."""
     novo = client_service.create_client(
