@@ -205,8 +205,12 @@ class SortableItem(QTableWidgetItem):
 
 
 def text_item(value: object, key: int | None = None, bold: bool = False) -> QTableWidgetItem:
-    item = SortableItem(str(value if value is not None else "—"))
+    texto = str(value if value is not None else "—")
+    item = SortableItem(texto)
     item.setData(SORT_ROLE, str(value).lower() if value is not None else "")
+    # Nome longo em coluna estreita aparece cortado. Com a dica, passar o mouse
+    # mostra o texto inteiro em vez de deixar o balcão adivinhando.
+    item.setToolTip(texto)
     if key is not None:
         item.setData(Qt.ItemDataRole.UserRole, int(key))
     if bold:
