@@ -16,6 +16,7 @@ exceto quando ele é cancelado.
 from __future__ import annotations
 
 import re
+import secrets
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -23,6 +24,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from app.config import APP_NAME, APP_VERSION, settings
 from app.database.connection import session_scope
@@ -236,8 +238,32 @@ def save_charge_settings(
 
 
 def _next_number(session) -> str:  # noqa: ANN001
-    total = session.scalar(sa.select(sa.func.count()).select_from(ChargeDocument))
-    return f"{NUMBER_PREFIX}-{int(total or 0) + 1:06d}"
+    """Próximo número da sequência: OV-000007.
+
+    A sequência vem do **maior número já emitido**, não da contagem de linhas:
+    contar daria o mesmo número duas vezes se um documento fosse removido do
+    banco. Se ainda assim houver colisão (duas origens emitindo no mesmo
+    instante), completa com um sufixo aleatório em vez de recusar a emissão —
+    o mesmo que o código do recebimento faz.
+    """
+    ultimo = session.scalar(
+        sa.select(sa.func.max(ChargeDocument.numero)).where(
+            ChargeDocument.numero.like(f"{NUMBER_PREFIX}-%")
+        )
+    )
+    sequencia = 0
+    if ultimo:
+        sufixo = str(ultimo).rsplit("-", 1)[-1]
+        if sufixo.isdigit():
+            sequencia = int(sufixo)
+
+    candidato = f"{NUMBER_PREFIX}-{sequencia + 1:06d}"
+    existe = session.scalar(
+        sa.select(ChargeDocument.id).where(ChargeDocument.numero == candidato)
+    )
+    if existe is None:
+        return candidato
+    return f"{NUMBER_PREFIX}-{secrets.token_hex(3).upper()}"
 
 
 def _record_event(
@@ -335,8 +361,18 @@ def create(
             criado_por_id=actor.id if actor else None,
             criado_por_nome=actor.nome if actor else "sistema",
         )
-        session.add(documento)
-        session.flush()
+        try:
+            session.add(documento)
+            session.flush()
+        except IntegrityError as exc:
+            # Rede de segurança do banco: o índice único parcial de `parcela_id`
+            # barra uma segunda cobrança ativa mesmo que a conferência acima
+            # tenha passado — duas origens emitindo no mesmo instante. Sem isto,
+            # o funcionário veria um erro cru do banco em vez de um aviso.
+            raise BusinessError(
+                f"A parcela {item.rotulo} acabou de receber uma cobrança por "
+                "outro caminho. Atualize a tela e use Reimprimir."
+            ) from exc
 
         _record_event(
             session,

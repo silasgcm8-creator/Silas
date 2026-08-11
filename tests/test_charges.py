@@ -431,3 +431,77 @@ def test_configuracao_de_modalidades(admin):
         charge_service.save_charge_settings([], TYPE_STORE, admin)
     with pytest.raises(BusinessError, match="entre as permitidas"):
         charge_service.save_charge_settings([TYPE_STORE], TYPE_BANK, admin)
+
+
+# ---- corrida e numeração --------------------------------------------
+
+
+def _documento_direto(numero, cliente_id, crediario_id, parcela):
+    """Grava um documento sem passar pelo serviço — simula a outra origem."""
+    from app.database.connection import session_scope
+    from app.models.charge import ChargeDocument
+
+    with session_scope() as session:
+        session.add(
+            ChargeDocument(
+                numero=numero,
+                tipo=TYPE_STORE,
+                cliente_id=cliente_id,
+                crediario_id=crediario_id,
+                parcela_id=parcela.id,
+                emissao=date.today(),
+                vencimento=parcela.vencimento,
+                valor_original=parcela.valor,
+                juros=Decimal("0.00"),
+                desconto=Decimal("0.00"),
+                valor_atualizado=parcela.valor,
+                criado_por_nome="outra origem",
+            )
+        )
+
+
+def test_numero_do_documento_vem_do_maior_ja_emitido(admin, parcelas):
+    """Contar linhas repetiria o número se um documento saísse do banco."""
+    import sqlalchemy as sa
+
+    from app.database.connection import session_scope
+    from app.models.charge import ChargeDocument
+
+    charge_service.create(parcelas[0].id, actor=admin)
+    charge_service.create(parcelas[1].id, actor=admin)
+
+    # Simula um documento removido do banco (manutenção, restauração parcial).
+    with session_scope() as session:
+        primeiro = session.scalars(
+            sa.select(ChargeDocument).order_by(ChargeDocument.id)
+        ).first()
+        session.delete(primeiro)
+
+    terceiro = charge_service.create(parcelas[2].id, actor=admin)
+    assert charge_service.build(terceiro).numero == "OV-000003"
+
+
+def test_corrida_na_emissao_vira_aviso_e_nao_erro_do_banco(
+    admin, cliente, crediario, parcelas
+):
+    """Duas origens emitindo no mesmo instante não podem mostrar erro cru."""
+    from sqlalchemy.exc import IntegrityError
+
+    _documento_direto("OV-900000", cliente, crediario, parcelas[0])
+
+    # A conferência do serviço já barra, com mensagem que o balcão entende.
+    with pytest.raises(BusinessError):
+        charge_service.create(parcelas[0].id, actor=admin)
+
+    # E o índice do banco barra a segunda gravação ativa da mesma parcela.
+    with pytest.raises(IntegrityError):
+        _documento_direto("OV-900001", cliente, crediario, parcelas[0])
+
+
+def test_numero_nao_se_repete_apos_cancelamento(admin, parcelas):
+    """Documento cancelado continua no banco e não devolve o número."""
+    primeiro = charge_service.create(parcelas[0].id, actor=admin)
+    charge_service.cancel(primeiro, "Emitido por engano", admin)
+
+    segundo = charge_service.create(parcelas[0].id, actor=admin)
+    assert charge_service.build(segundo).numero == "OV-000002"
