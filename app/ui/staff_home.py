@@ -12,7 +12,7 @@ serviço, não por uma coluna escondida na tabela.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -42,17 +42,36 @@ RECENT_LIMIT = 8
 
 
 class BigActionButton(QPushButton):
-    """Botão grande e legível, com o atalho visível no próprio botão."""
+    """Botão grande e legível, com o atalho num selo discreto no canto.
+
+    O atalho era uma segunda linha do rótulo e disputava peso visual com o nome
+    da ação. Num selo separado, o funcionário lê primeiro *o que o botão faz* —
+    e quem usa teclado continua vendo a tecla, ali e na dica.
+    """
 
     def __init__(self, label: str, icon_name: str, shortcut: str) -> None:
-        super().__init__(f"{label}\n{shortcut}")
+        super().__init__(label)
         self.setObjectName("BigAction")
-        self.setIcon(icons.icon(icon_name, "#ffffff", 26))
-        self.setMinimumHeight(104)
+        self.setIcon(icons.icon(icon_name, "#ffffff", 28))
+        self.setIconSize(QSize(28, 28))
+        self.setMinimumHeight(112)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setShortcut(QKeySequence(shortcut))
-        # O atalho fica também na dica, para quem navega por teclado.
         self.setToolTip(f"{label} ({shortcut})")
+
+        self.hint = QLabel(shortcut, self)
+        self.hint.setObjectName("BigActionHint")
+        # Sem isto, o clique sobre o selo não chegaria ao botão.
+        self.hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def resizeEvent(self, event) -> None:  # noqa: ANN001, N802
+        """Mantém o selo ancorado no canto inferior direito."""
+        super().resizeEvent(event)
+        self.hint.adjustSize()
+        self.hint.move(
+            self.width() - self.hint.width() - 22,
+            self.height() - self.hint.height() - 16,
+        )
 
 
 class StaffHomePage(QWidget):

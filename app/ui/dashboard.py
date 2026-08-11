@@ -60,11 +60,16 @@ class DashboardPage(QWidget):
 
         upcoming_card = Card()
         upcoming_card.body.addWidget(SectionTitle("Próximos vencimentos"))
+        # Sem o CPF: num painel de relance ele não ajuda a reconhecer ninguém e
+        # comia a largura do nome, que é o que identifica o cliente. O CPF
+        # continua em CLIENTES e CREDIÁRIOS, onde serve para conferir.
         self.upcoming_table = DataTable(
-            ["Cliente", "CPF", "Parcela", "Vencimento", "Valor"], stretch=0, sortable=False
+            ["Cliente", "Parcela", "Vencimento", "Valor"], stretch=0, sortable=False
         )
         upcoming_card.body.addWidget(self.upcoming_table)
-        panels.addWidget(upcoming_card, 3)
+        # Divisão par: no 3:2 o nome do cliente do painel de atrasos ficava
+        # espremido a ponto de sobrar só o primeiro nome.
+        panels.addWidget(upcoming_card, 1)
 
         late_card = Card()
         late_card.body.addWidget(SectionTitle("Atrasos recentes"))
@@ -72,7 +77,7 @@ class DashboardPage(QWidget):
             ["Cliente", "Vencimento", "Dias", "Valor"], stretch=0, sortable=False
         )
         late_card.body.addWidget(self.late_table)
-        panels.addWidget(late_card, 2)
+        panels.addWidget(late_card, 1)
 
         layout.addLayout(panels, 1)
 
@@ -99,7 +104,6 @@ class DashboardPage(QWidget):
             rows.append(
                 [
                     text_item(item.cliente, key=item.crediario_id),
-                    text_item(item.cpf),
                     text_item(item.parcela),
                     date_item(item.vencimento),
                     money_item(item.valor),

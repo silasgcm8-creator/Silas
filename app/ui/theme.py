@@ -72,10 +72,13 @@ QListWidget#Nav {{
 }}
 
 QListWidget#Nav::item {{
-    height: 42px;
-    padding-left: 12px;
-    border-radius: 10px;
+    height: 44px;
+    padding-left: 14px;
+    margin: 2px 0px;
+    border-radius: 11px;
     color: {TEXT_MUTED};
+    font-size: 12px;
+    letter-spacing: 0.4px;
 }}
 
 QListWidget#Nav::item:hover {{
@@ -84,14 +87,16 @@ QListWidget#Nav::item:hover {{
 }}
 
 QListWidget#Nav::item:selected {{
-    background-color: {ACCENT};
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {ACCENT}, stop:1 {ACCENT_PRESSED});
     color: #FFFFFF;
-    font-weight: 600;
+    font-weight: 700;
 }}
 
 QLabel#PageTitle {{
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 700;
+    letter-spacing: -0.3px;
     color: #FFFFFF;
 }}
 
@@ -107,9 +112,49 @@ QLabel#SectionTitle {{
 }}
 
 QFrame#Card, QWidget#Card {{
-    background-color: {SURFACE};
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {SURFACE_ALT}, stop:1 {SURFACE});
     border: 1px solid {BORDER};
     border-radius: 14px;
+}}
+
+/* Os quatro botões do balcão: a superfície mais usada do sistema. Grandes,
+   com o nome da ação em destaque e o atalho num selo discreto no canto. */
+QPushButton#BigAction {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {SURFACE_ALT}, stop:1 {SURFACE});
+    border: 1px solid {BORDER};
+    border-radius: 18px;
+    padding: 20px 24px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-align: left;
+    color: #FFFFFF;
+}}
+
+QPushButton#BigAction:hover {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {ACCENT}, stop:1 {ACCENT_PRESSED});
+    border-color: {ACCENT_HOVER};
+}}
+
+QPushButton#BigAction:pressed {{
+    background-color: {ACCENT_PRESSED};
+    border-color: {ACCENT_PRESSED};
+}}
+
+QPushButton#BigAction:disabled {{
+    background: transparent;
+    color: #4C5878;
+    border-color: {BORDER};
+}}
+
+QLabel#BigActionHint {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
 }}
 
 QLabel#CardLabel {{
@@ -218,8 +263,13 @@ QTableWidget, QTableView {{
 }}
 
 QTableWidget::item, QTableView::item {{
-    padding: 8px 10px;
+    padding: 11px 12px;
     border: none;
+    border-bottom: 1px solid {BACKGROUND};
+}}
+
+QTableWidget::item:hover, QTableView::item:hover {{
+    background-color: {SURFACE_ALT};
 }}
 
 QHeaderView::section {{
@@ -227,10 +277,11 @@ QHeaderView::section {{
     color: {TEXT_MUTED};
     border: none;
     border-bottom: 1px solid {BORDER};
-    padding: 10px;
-    font-size: 11px;
+    padding: 12px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.5px;
+    letter-spacing: 1.1px;
+    text-transform: uppercase;
 }}
 
 QTableCornerButton::section {{

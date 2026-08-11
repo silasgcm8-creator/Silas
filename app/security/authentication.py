@@ -127,6 +127,22 @@ class _Token:
     expires_at: datetime
 
 
+def _load_active_user(user_id: int) -> SessionUser | None:
+    """Lê o usuário do banco. `None` se não existe mais ou foi desativado.
+
+    Importado aqui dentro: `user_service` depende deste módulo, então o caminho
+    inverso não pode existir no topo do arquivo.
+    """
+    from app.database.connection import session_scope
+    from app.models.user import User
+
+    with session_scope() as session:
+        row = session.get(User, user_id)
+        if row is None or not row.ativo:
+            return None
+        return SessionUser(id=row.id, usuario=row.usuario, nome=row.nome, role=row.role)
+
+
 @dataclass
 class TokenStore:
     """Tokens em memória usados pela API local (nunca gravados em disco)."""
@@ -144,6 +160,14 @@ class TokenStore:
         return token
 
     def resolve(self, token: str) -> SessionUser | None:
+        """Devolve quem é o portador do token — conferindo o cadastro atual.
+
+        O token guarda uma **foto** do usuário no momento do login. Sem
+        reconferir, um funcionário desativado continuaria entrando pelo celular
+        até o token expirar, e um administrador rebaixado continuaria com a
+        visão financeira. É uma consulta pequena e indexada por requisição:
+        barato perto de entregar dado a quem não tem mais acesso.
+        """
         with self._lock:
             entry = self._tokens.get(token or "")
             if entry is None:
@@ -151,7 +175,27 @@ class TokenStore:
             if entry.expires_at < datetime.now():
                 self._tokens.pop(token, None)
                 return None
-            return entry.user
+            user_id = entry.user.id
+
+        atual = _load_active_user(user_id)
+        if atual is None:
+            # Conta desativada ou removida: o token morre junto.
+            self.revoke(token)
+            return None
+
+        with self._lock:
+            vigente = self._tokens.get(token or "")
+            if vigente is not None:
+                vigente.user = atual
+        return atual
+
+    def revoke_user(self, user_id: int) -> int:
+        """Derruba todos os tokens de um usuário. Devolve quantos caíram."""
+        with self._lock:
+            alvos = [t for t, e in self._tokens.items() if e.user.id == user_id]
+            for token in alvos:
+                self._tokens.pop(token, None)
+        return len(alvos)
 
     def revoke(self, token: str) -> None:
         with self._lock:

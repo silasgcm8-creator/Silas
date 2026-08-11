@@ -140,7 +140,8 @@ class MainWindow(QMainWindow):
     def _sidebar(self) -> QWidget:
         panel = QWidget()
         panel.setObjectName("Sidebar")
-        panel.setFixedWidth(232)
+        # 258px: largura mínima em que "REGISTRAR PAGAMENTO" cabe inteiro.
+        panel.setFixedWidth(258)
 
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 22, 16, 18)

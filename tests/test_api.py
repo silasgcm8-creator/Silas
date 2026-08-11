@@ -113,3 +113,34 @@ def test_funcionario_registra_pagamento_mas_nao_desfaz(client, admin, crediario)
     assert repetido.status_code == 409
     hoje = date.today()
     assert payment_service.total_received(hoje, hoje, actor=admin) == Decimal("200.00")
+
+
+def test_token_morre_quando_a_conta_e_desativada(client, admin):
+    """Funcionário demitido não pode seguir entrando pelo celular."""
+    user_service.create_user("Ana Vendas", "ana", "senha123", Role.STAFF, admin)
+    cabecalho = auth(login(client, "ana", "senha123"))
+    assert client.get("/clientes", headers=cabecalho).status_code == 200
+
+    ana = next(u for u in user_service.list_users(admin) if u.usuario == "ana")
+    user_service.set_active(ana.id, False, admin)
+
+    # O token antigo para de valer na hora, sem esperar expirar.
+    assert client.get("/clientes", headers=cabecalho).status_code == 401
+
+
+def test_token_acompanha_a_troca_de_papel(client, admin):
+    """Administrador rebaixado perde a visão financeira imediatamente."""
+    from app.database.connection import session_scope
+    from app.models.user import User
+
+    user_service.create_user("Carlos", "carlos", "senha123", Role.ADMIN, admin)
+    cabecalho = auth(login(client, "carlos", "senha123"))
+    assert client.get("/painel", headers=cabecalho).status_code == 200
+
+    carlos = next(u for u in user_service.list_users(admin) if u.usuario == "carlos")
+    with session_scope() as session:
+        session.get(User, carlos.id).papel = Role.STAFF.value
+
+    assert client.get("/painel", headers=cabecalho).status_code == 403
+    # E segue trabalhando no que é do funcionário.
+    assert client.get("/clientes", headers=cabecalho).status_code == 200
