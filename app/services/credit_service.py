@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+import sqlalchemy as sa
+
 from app.database.connection import session_scope
 from app.models.credit import Credit
 from app.models.installment import Installment
@@ -17,7 +19,7 @@ from app.repositories.installment_repository import InstallmentRepository
 from app.security.authentication import SessionUser
 from app.security.permissions import Permission, require
 from app.services import log_service
-from app.services.errors import NotFoundError, ValidationError
+from app.services.errors import BusinessError, NotFoundError, ValidationError
 from app.utils.dates import add_months
 from app.utils.money import ZERO, format_brl, from_cents, split_installments, to_decimal
 from app.utils.validators import validate_installment_count
@@ -213,6 +215,82 @@ def list_by_client(cliente_id: int, reference: date | None = None) -> list[dict[
             }
             for row in rows
         ]
+
+
+def delete_credit(credit_id: int, motivo: str, actor: SessionUser) -> str:
+    """Apaga um crediário lançado por engano. Devolve o resumo do que saiu.
+
+    A linha é simples e não se move: **só sai o que nunca movimentou dinheiro**.
+    Se existe qualquer pagamento ligado ao crediário — inclusive um já estornado
+    — a exclusão é recusada, porque a história do caixa não se apaga; o caminho
+    ali é o estorno, que preserva o registro.
+
+    Sem pagamento, não há nada de financeiro a preservar: o crediário sai de
+    verdade do banco, levando junto parcelas e documentos de cobrança (o banco
+    faz isso em cascata). O que fica é a trilha na auditoria — quem excluiu,
+    quando, de qual cliente, por qual motivo.
+
+    É esta exclusão que destrava também o cadastro do cliente: um cliente só é
+    protegido contra exclusão enquanto tiver crediário.
+    """
+    require(actor.role, Permission.CREDIT_DELETE)
+    motivo = " ".join((motivo or "").split())
+    if len(motivo) < 5:
+        raise ValidationError(
+            "Informe o motivo da exclusão (no mínimo 5 caracteres). "
+            "Ele fica registrado na auditoria."
+        )
+
+    from app.models.charge import ChargeDocument
+    from app.models.payment import Payment
+
+    with session_scope() as session:
+        credit = CreditRepository(session).get_with_client(credit_id)
+        if credit is None:
+            raise NotFoundError("Crediário não encontrado.")
+
+        pagamentos = session.scalar(
+            sa.select(sa.func.count())
+            .select_from(Payment)
+            .where(Payment.crediario_id == credit_id)
+        )
+        if pagamentos:
+            raise BusinessError(
+                "Este crediário já teve pagamento registrado e não pode ser "
+                "excluído. Para desfazer um recebimento, use o estorno — ele "
+                "preserva o histórico."
+            )
+
+        documentos = int(
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(ChargeDocument)
+                .where(ChargeDocument.crediario_id == credit_id)
+            )
+            or 0
+        )
+
+        cliente_nome = credit.client.nome
+        cliente_id = credit.cliente_id
+        resumo = (
+            f"{cliente_nome} — crediário #{credit_id} de "
+            f"{format_brl(credit.valor_total)} em {credit.parcelas}x"
+        )
+        detalhes = resumo + (
+            f" (com {documentos} documento(s) de cobrança)" if documentos else ""
+        ) + f" — motivo: {motivo}"
+
+        # O log é gravado antes da remoção: depois dela o crediário não existe
+        # mais para ser consultado, e a trilha precisa sobreviver.
+        log_service.record(
+            session,
+            LogAction.CREDIT_DELETED,
+            actor,
+            detalhes=detalhes,
+            cliente_id=cliente_id,
+        )
+        session.delete(credit)
+        return resumo
 
 
 def get_detail(

@@ -285,10 +285,21 @@ class CreditDetailDialog(QDialog):
         self.slip_button.clicked.connect(self._issue_slip)
         self.slip_button.setEnabled(ctx.can(Permission.SLIP_ISSUE))
 
+        # Excluir crediário só aparece para quem pode: é a saída para o
+        # lançamento feito errado, e some assim que houver pagamento.
+        self.delete_button = danger_button("Excluir crediário", "logout")
+        self.delete_button.setToolTip(
+            "Apaga um crediário lançado por engano. Só enquanto nenhum "
+            "pagamento tiver sido registrado."
+        )
+        self.delete_button.clicked.connect(self._delete_credit)
+
         actions.addWidget(self.pay_button)
         actions.addWidget(self.undo_button)
         actions.addWidget(self.charge_button)
         actions.addWidget(self.slip_button)
+        if ctx.can(Permission.CREDIT_DELETE):
+            actions.addWidget(self.delete_button)
         actions.addWidget(whats)
         actions.addStretch(1)
         actions.addWidget(close)
@@ -317,12 +328,21 @@ class CreditDetailDialog(QDialog):
         if subtitle is not None:
             subtitle.setText(f"Crediário #{detail.id} — {detail.parcelas} parcelas")
 
-        entrada = f"Entrada {format_brl(detail.entrada)}" if detail.entrada > ZERO else "Sem entrada"
         descricao = f"   •   {detail.descricao}" if detail.descricao else ""
-        self.identity.setText(
-            f"{detail.cpf}   •   {detail.telefone}   •   {entrada}   •   "
-            f"Financiado {format_brl(detail.financiado)}{descricao}"
-        )
+        if self.financeiro:
+            entrada = (
+                f"Entrada {format_brl(detail.entrada)}"
+                if detail.entrada > ZERO
+                else "Sem entrada"
+            )
+            self.identity.setText(
+                f"{detail.cpf}   •   {detail.telefone}   •   {entrada}   •   "
+                f"Financiado {format_brl(detail.financiado)}{descricao}"
+            )
+        else:
+            # O balcão precisa identificar o cliente e escolher a parcela; o
+            # quanto ele comprou e financiou não entra nisso.
+            self.identity.setText(f"{detail.cpf}   •   {detail.telefone}{descricao}")
 
         if self.financeiro:
             self.card_compra.set_value(format_brl(detail.valor_total))
@@ -364,6 +384,37 @@ class CreditDetailDialog(QDialog):
             return None
         item = self.table.item(row, 0)
         return int(item.data(Qt.ItemDataRole.UserRole)) if item else None
+
+    def _delete_credit(self) -> None:
+        """Exclusão do lançamento errado: pede motivo e confirma antes."""
+        motivo, ok = QInputDialog.getText(
+            self,
+            "Excluir crediário",
+            "Por que este crediário está sendo excluído?\n"
+            "O motivo fica registrado na auditoria.",
+        )
+        if not ok:
+            return
+
+        if not confirm(
+            self,
+            "Excluir crediário?",
+            f"Cliente: {self.detail.cliente}\n"
+            f"Compra: {format_brl(self.detail.valor_total)} em "
+            f"{self.detail.parcelas}x\n\n"
+            "As parcelas e os documentos de cobrança deste crediário serão "
+            "apagados. Esta ação não pode ser desfeita.",
+        ):
+            return
+
+        try:
+            resumo = credit_service.delete_credit(self.credit_id, motivo, self.ctx.user)
+        except (BusinessError, NotFoundError, ValidationError, PermissionDenied) as exc:
+            warn(self, "Excluir crediário", str(exc))
+            return
+
+        self.ctx.notify(f"Crediário excluído — {resumo}")
+        self.accept()
 
     def _mark_paid(self) -> None:
         installment_id = self._selected_installment()
@@ -521,7 +572,11 @@ class CreditsPage(QWidget):
         bar.addWidget(new_button)
         layout.addLayout(bar)
 
-        colunas = ["Cliente", "CPF", "Compra", "Parcelas"]
+        # "Compra" é o valor da compra do cliente — histórico financeiro dele,
+        # e não algo de que o balcão precise para atender.
+        colunas = ["Cliente", "CPF", "Parcelas"]
+        if self.financeiro:
+            colunas.insert(2, "Compra")
         if self.financeiro:
             colunas += ["Saldo devedor", "Valor vencido"]
         self.table = DataTable(colunas, stretch=0, sortable=False)
@@ -549,9 +604,10 @@ class CreditsPage(QWidget):
             celulas = [
                 text_item(row.cliente, key=row.id),
                 text_item(row.cpf),
-                money_item(row.valor_total),
-                text_item(f"{row.pagas}/{row.parcelas} pagas"),
             ]
+            if self.financeiro:
+                celulas.append(money_item(row.valor_total))
+            celulas.append(text_item(f"{row.pagas}/{row.parcelas} pagas"))
             if self.financeiro:
                 celulas += [
                     money_item(row.saldo),

@@ -817,141 +817,217 @@ def render_pdf(view: ChargeView, destination: Path | str | None = None) -> Path:
         topo=altura - margem,
     )
 
+    # ---- paleta e caixas --------------------------------------------
+    # Grafite em vez de preto puro e um cinza claro de fundo: o documento sai
+    # da impressora com a mesma leitura de um extrato de banco, sem parecer
+    # uma folha de máquina de escrever.
+    TINTA = colors.HexColor("#1F2937")
+    SUAVE = colors.HexColor("#6B7280")
+    LINHA = colors.HexColor("#D1D5DB")
+    FUNDO = colors.HexColor("#F3F4F6")
+    DESTAQUE = colors.HexColor("#312E81")
+    ALERTA = colors.HexColor("#B00020")
+    util = largura - 2 * margem
+
+    def caixa(topo: float, alta: float, titulo: str = "") -> float:
+        """Moldura com faixa de título. Devolve o y do primeiro conteúdo."""
+        pdf.setFillColor(colors.white)
+        pdf.setStrokeColor(LINHA)
+        pdf.setLineWidth(0.8)
+        pdf.rect(margem, topo - alta, util, alta, stroke=1, fill=1)
+        if titulo:
+            faixa = 7 * mm
+            pdf.setFillColor(FUNDO)
+            pdf.rect(margem, topo - faixa, util, faixa, stroke=0, fill=1)
+            pdf.setStrokeColor(LINHA)
+            pdf.line(margem, topo - faixa, margem + util, topo - faixa)
+            pdf.setFillColor(SUAVE)
+            pdf.setFont("Helvetica-Bold", 8)
+            pdf.drawString(margem + 4 * mm, topo - faixa + 2.4 * mm, titulo.upper())
+            pdf.setFillColor(TINTA)
+            return topo - faixa - 5.5 * mm
+        pdf.setFillColor(TINTA)
+        return topo - 5.5 * mm
+
+    def par(x: float, linha_y: float, rotulo: str, valor: str, largura_rotulo: float) -> None:
+        pdf.setFillColor(SUAVE)
+        pdf.setFont("Helvetica", 8.5)
+        pdf.drawString(x, linha_y, rotulo.upper())
+        pdf.setFillColor(TINTA)
+        pdf.setFont("Helvetica-Bold", 9.5)
+        pdf.drawString(x + largura_rotulo, linha_y, str(valor))
+
+    pdf.setFillColor(SUAVE)
     pdf.setFont("Helvetica", 8.5)
     pdf.drawRightString(largura - margem, y, f"Documento {view.numero}")
-    y -= 5 * mm
+    pdf.setFillColor(TINTA)
+    y -= 6 * mm
 
     if view.situacao == STATUS_CANCELLED:
+        pdf.setFillColor(ALERTA)
         pdf.setFont("Helvetica-Bold", 12)
-        pdf.setFillColor(colors.HexColor("#B00020"))
         pdf.drawRightString(largura - margem, y, "DOCUMENTO CANCELADO")
-        pdf.setFillColor(colors.black)
-        y -= 6 * mm
+        pdf.setFillColor(TINTA)
+        y -= 7 * mm
 
-    # ---- identificação ---------------------------------------------
-    linhas = [
-        ("Cliente", view.cliente),
+    # ---- identificação, em duas colunas -----------------------------
+    esquerda = [
+        ("Cliente", view.cliente[:34]),
         ("CPF", view.cpf_mascarado),
         ("Telefone", view.telefone),
+    ]
+    direita = [
         ("Crediário", f"{view.crediario_id:06d}"),
-        ("Parcela", f"{view.parcela}  (total de {view.parcela_total} parcelas)"),
+        ("Parcela", f"{view.parcela} de {view.parcela_total}"),
         ("Emissão", format_br(view.emissao)),
     ]
+    direita.append(("Documento", view.numero))
+
+    # A descrição da compra ganha a linha inteira: numa coluna ela seria
+    # cortada no meio da palavra.
+    linhas_extra = 1 if view.descricao else 0
+    alta = 7 * mm + (len(esquerda) + linhas_extra) * 5.8 * mm + 3 * mm
+    linha_y = caixa(y, alta, "Identificação")
+    meio_col = margem + util / 2
+    for indice in range(len(esquerda)):
+        par(margem + 4 * mm, linha_y, *esquerda[indice], 22 * mm)
+        if indice < len(direita):
+            par(meio_col + 4 * mm, linha_y, *direita[indice], 22 * mm)
+        linha_y -= 5.8 * mm
     if view.descricao:
-        linhas.append(("Compra", view.descricao[:60]))
+        par(margem + 4 * mm, linha_y, "Compra", view.descricao[:78], 22 * mm)
+    y -= alta + 5 * mm
 
-    for rotulo, valor in linhas:
-        pdf.setFont("Helvetica", 10)
-        pdf.drawString(margem, y, f"{rotulo}:")
-        pdf.setFont("Helvetica-Bold", 10)
-        pdf.drawString(margem + 30 * mm, y, str(valor))
-        y -= 5.6 * mm
+    # ---- valor e vencimento -----------------------------------------
+    alta = 27 * mm
+    pdf.setFillColor(FUNDO)
+    pdf.setStrokeColor(DESTAQUE)
+    pdf.setLineWidth(1.2)
+    pdf.rect(margem, y - alta, util, alta, stroke=1, fill=1)
+    pdf.setFillColor(DESTAQUE)
+    pdf.rect(margem, y - alta, 2.2 * mm, alta, stroke=0, fill=1)
 
-    y -= 2 * mm
+    meio = margem + util * 0.52
+    pdf.setStrokeColor(LINHA)
+    pdf.setLineWidth(0.8)
+    pdf.line(meio, y - alta + 4 * mm, meio, y - 4 * mm)
 
-    # ---- valores ----------------------------------------------------
+    pdf.setFillColor(SUAVE)
+    pdf.setFont("Helvetica-Bold", 8)
+    pdf.drawString(margem + 8 * mm, y - 8 * mm, "VALOR A PAGAR")
+    pdf.setFillColor(DESTAQUE)
+    pdf.setFont("Helvetica-Bold", 26)
+    pdf.drawString(margem + 8 * mm, y - 19.5 * mm, format_brl(view.valor_atualizado))
+
+    pdf.setFillColor(SUAVE)
+    pdf.setFont("Helvetica-Bold", 8)
+    pdf.drawString(meio + 6 * mm, y - 8 * mm, "VENCIMENTO")
+    pdf.setFillColor(TINTA)
+    pdf.setFont("Helvetica-Bold", 22)
+    pdf.drawString(meio + 6 * mm, y - 19.5 * mm, format_br(view.vencimento))
+
+    # A composição fica ao lado do valor, não numa lista solta acima dele:
+    # quem confere quer ver de onde veio o número no mesmo golpe de vista.
     if view.tem_ajuste:
-        pdf.setFont("Helvetica", 9)
-        pdf.drawString(margem, y, f"Valor original: {format_brl(view.valor_original)}")
-        y -= 4.4 * mm
+        cy_ajuste = y - 24.5 * mm
+        pdf.setFillColor(SUAVE)
+        pdf.setFont("Helvetica", 7.5)
+        partes = [f"parcela {format_brl(view.valor_original)}"]
         if view.juros > ZERO:
-            pdf.drawString(margem, y, f"Juros / multa: {format_brl(view.juros)}")
-            y -= 4.4 * mm
+            partes.append(f"+ juros/multa {format_brl(view.juros)}")
         if view.desconto > ZERO:
-            pdf.drawString(margem, y, f"Desconto autorizado: {format_brl(view.desconto)}")
-            y -= 4.4 * mm
-        y -= 1 * mm
-
-    caixa = 26 * mm
-    pdf.setLineWidth(1.4)
-    pdf.rect(margem, y - caixa, largura - 2 * margem, caixa)
-    meio = largura / 2
-    pdf.setLineWidth(0.6)
-    pdf.line(meio, y - caixa, meio, y)
-
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(margem + 5 * mm, y - 8 * mm, "VALOR A PAGAR")
-    pdf.setFont("Helvetica-Bold", 24)
-    pdf.drawString(margem + 5 * mm, y - 19 * mm, format_brl(view.valor_atualizado))
-
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(meio + 5 * mm, y - 8 * mm, "VENCIMENTO")
-    pdf.setFont("Helvetica-Bold", 24)
-    pdf.drawString(meio + 5 * mm, y - 19 * mm, format_br(view.vencimento))
-    y -= caixa + 4 * mm
+            partes.append(f"- desconto {format_brl(view.desconto)}")
+        pdf.drawString(margem + 8 * mm, cy_ajuste, "   ".join(partes))
+        pdf.setFillColor(TINTA)
+    y -= alta + 4 * mm
 
     if view.situacao == STATUS_LATE:
+        pdf.setFillColor(ALERTA)
         pdf.setFont("Helvetica-Bold", 9)
-        pdf.setFillColor(colors.HexColor("#B00020"))
         pdf.drawString(margem, y, f"Parcela em atraso — {view.dias_atraso} dias")
-        pdf.setFillColor(colors.black)
-        y -= 5 * mm
-    y -= 4 * mm
+        pdf.setFillColor(TINTA)
+        y -= 6 * mm
+    y -= 1 * mm
 
-    # ---- forma de pagamento ----------------------------------------
+    # ---- como pagar + QR, lado a lado -------------------------------
+    qr_lado = 26 * mm
+    alta = 44 * mm
+    linha_y = caixa(y, alta, "Como pagar")
+    largura_texto = util - qr_lado - 14 * mm
+
     if view.tipo == TYPE_STORE:
-        pdf.setFont("Helvetica-Bold", 12)
-        pdf.drawString(margem, y, f"PAGAMENTO EXCLUSIVO NA {company.titulo}")
-        y -= 6 * mm
-        pdf.setFont("Helvetica", 9.5)
-        pdf.drawString(margem, y, store_notice(company.nome))
-        y -= 4.6 * mm
+        pdf.setFillColor(DESTAQUE)
+        pdf.setFont("Helvetica-Bold", 11.5)
+        pdf.drawString(margem + 4 * mm, linha_y, f"PAGAMENTO NA {company.titulo}")
+        pdf.setFillColor(TINTA)
+        linha_y -= 6 * mm
+        pdf.setFont("Helvetica", 9)
+        for texto in _wrap(store_notice(company.nome), 58):
+            pdf.drawString(margem + 4 * mm, linha_y, texto)
+            linha_y -= 4.4 * mm
+        linha_y -= 1 * mm
         pdf.setFont("Helvetica-Bold", 9.5)
-        pdf.drawString(margem, y, INSTRUCTION)
-        y -= 8 * mm
+        for texto in _wrap(INSTRUCTION, 56):
+            pdf.drawString(margem + 4 * mm, linha_y, texto)
+            linha_y -= 4.6 * mm
     else:
+        pdf.setFillColor(DESTAQUE)
         pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(margem, y, "DADOS PARA PAGAMENTO")
-        y -= 6 * mm
+        pdf.drawString(margem + 4 * mm, linha_y, "DADOS PARA PAGAMENTO")
+        pdf.setFillColor(TINTA)
+        linha_y -= 6 * mm
         for rotulo, valor in view.pagamento.linhas():
-            pdf.setFont("Helvetica", 9.5)
-            pdf.drawString(margem, y, f"{rotulo}:")
-            pdf.setFont("Helvetica-Bold", 9.5)
-            pdf.drawString(margem + 30 * mm, y, str(valor))
-            y -= 4.8 * mm
-
+            par(margem + 4 * mm, linha_y, rotulo, str(valor), 26 * mm)
+            linha_y -= 4.9 * mm
         if view.pagamento.pix_chave:
-            y -= 2 * mm
-            pdf.setFont("Helvetica-Bold", 10)
+            linha_y -= 1 * mm
+            pdf.setFillColor(SUAVE)
+            pdf.setFont("Helvetica-Bold", 8)
             rotulo_pix = (
                 f"CHAVE PIX ({view.pagamento.pix_tipo})"
                 if view.pagamento.pix_tipo
                 else "CHAVE PIX"
             )
-            pdf.drawString(margem, y, rotulo_pix)
-            y -= 5 * mm
-            pdf.setFont("Courier-Bold", 11)
-            pdf.drawString(margem, y, view.pagamento.pix_chave[:60])
-            y -= 6 * mm
-        else:
-            y -= 2 * mm
+            pdf.drawString(margem + 4 * mm, linha_y, rotulo_pix)
+            pdf.setFillColor(TINTA)
+            linha_y -= 4.6 * mm
+            pdf.setFont("Courier-Bold", 10.5)
+            pdf.drawString(margem + 4 * mm, linha_y, view.pagamento.pix_chave[:48])
+            linha_y -= 5 * mm
 
     if view.observacao:
+        pdf.setFillColor(SUAVE)
         pdf.setFont("Helvetica-Oblique", 8.5)
-        pdf.drawString(margem, y, f"Observação: {view.observacao[:100]}")
-        y -= 6 * mm
+        for texto in _wrap(f"Observação: {view.observacao}", 62)[:2]:
+            pdf.drawString(margem + 4 * mm, linha_y, texto)
+            linha_y -= 4 * mm
+        pdf.setFillColor(TINTA)
 
-    # ---- QR interno -------------------------------------------------
-    qr_lado = 26 * mm
-    base_qr = max(y - qr_lado, margem + 68 * mm)
+    # QR ancorado à direita, dentro da mesma moldura.
+    qr_x = largura - margem - qr_lado - 5 * mm
+    qr_y = y - alta + 9 * mm
     qr = createBarcodeDrawing("QR", value=view.qr_content, width=qr_lado, height=qr_lado)
-    renderPDF.draw(qr, pdf, margem, base_qr)
+    renderPDF.draw(qr, pdf, qr_x, qr_y)
+    pdf.setFillColor(SUAVE)
+    pdf.setFont("Helvetica", 6.5)
+    pdf.drawCentredString(qr_x + qr_lado / 2, qr_y - 4 * mm, "USO INTERNO — NÃO É PIX")
+    pdf.setFillColor(TINTA)
+    pdf.setFont("Courier-Bold", 8)
+    pdf.drawCentredString(qr_x + qr_lado / 2, qr_y - 7.5 * mm, view.numero)
+    y -= alta + 4 * mm
 
-    tx = margem + qr_lado + 5 * mm
-    ty = base_qr + qr_lado - 4 * mm
-    pdf.setFont("Helvetica-Bold", 8.5)
-    pdf.drawString(tx, ty, "QR CODE INTERNO")
-    ty -= 4 * mm
-    pdf.setFont("Helvetica", 7.5)
-    for linha in _wrap(qr_disclaimer(company.nome), 74):
-        pdf.drawString(tx, ty, linha)
-        ty -= 3.4 * mm
-    ty -= 1 * mm
-    pdf.setFont("Courier-Bold", 9)
-    pdf.drawString(tx, ty, view.numero)
+    pdf.setFillColor(SUAVE)
+    pdf.setFont("Helvetica", 7)
+    for texto in _wrap(qr_disclaimer(company.nome), 118):
+        pdf.drawString(margem, y, texto)
+        y -= 3.4 * mm
+    pdf.setFillColor(TINTA)
 
     # ---- comprovante destacável -------------------------------------
-    corte = margem + 56 * mm
+    # O corte acompanha o fim do conteúdo. Fixo, ele deixava um vazio no meio
+    # da folha quando o documento era curto — e vazio no meio parece defeito,
+    # enquanto sobra no rodapé parece margem.
+    corte = max(margem + 52 * mm, y - 8 * mm)
     pdf.setDash(3, 3)
     pdf.setLineWidth(0.8)
     pdf.line(margem, corte, largura - margem, corte)
@@ -960,10 +1036,17 @@ def render_pdf(view: ChargeView, destination: Path | str | None = None) -> Path:
     pdf.drawRightString(largura - margem, corte + 1.5 * mm, "destaque aqui")
 
     cy = corte - 6 * mm
-    pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(margem, cy, "COMPROVANTE")
+    pdf.setFillColor(DESTAQUE)
+    pdf.setFont("Helvetica-Bold", 10.5)
+    pdf.drawString(margem, cy, "COMPROVANTE DE PAGAMENTO")
+    pdf.setFillColor(SUAVE)
     pdf.setFont("Helvetica", 8)
     pdf.drawRightString(largura - margem, cy, f"{company.titulo} — {view.numero}")
+    pdf.setFillColor(TINTA)
+    cy -= 2.5 * mm
+    pdf.setStrokeColor(LINHA)
+    pdf.setLineWidth(0.8)
+    pdf.line(margem, cy, largura - margem, cy)
     cy -= 6 * mm
 
     coluna2 = margem + 92 * mm
@@ -977,12 +1060,9 @@ def render_pdf(view: ChargeView, destination: Path | str | None = None) -> Path:
     ]
     for indice, (rotulo, valor) in enumerate(pares):
         x = margem if indice % 2 == 0 else coluna2
-        linha_y = cy - (indice // 2) * 5 * mm
-        pdf.setFont("Helvetica", 8.5)
-        pdf.drawString(x, linha_y, f"{rotulo}:")
-        pdf.setFont("Helvetica-Bold", 8.5)
-        pdf.drawString(x + 24 * mm, linha_y, str(valor))
-    cy -= 3 * 5 * mm + 5 * mm
+        linha_y = cy - (indice // 2) * 5.4 * mm
+        par(x, linha_y, rotulo, str(valor), 24 * mm)
+    cy -= 3 * 5.4 * mm + 6 * mm
 
     pdf.setFont("Helvetica", 8.5)
     pdf.drawString(margem, cy, "Data do pagamento: ____/____/________")

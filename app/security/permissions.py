@@ -25,6 +25,9 @@ class Permission(str, Enum):
     CLIENT_DELETE = "cliente.excluir"
     CREDIT_VIEW = "crediario.ver"
     CREDIT_CREATE = "crediario.criar"
+    #: Excluir um crediário lançado por engano. Só vale enquanto nenhum
+    #: pagamento existir — dinheiro que entrou não se apaga.
+    CREDIT_DELETE = "crediario.excluir"
     PAYMENT_REGISTER = "pagamento.registrar"
     PAYMENT_UNDO = "pagamento.estornar"
     RECEIPT_ISSUE = "comprovante.emitir"

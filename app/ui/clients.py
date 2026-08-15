@@ -198,9 +198,10 @@ class ClientDetailDialog(QDialog):
             layout.addLayout(cards)
 
         layout.addWidget(SectionTitle("Crediários do cliente"))
-        colunas = ["Crediário", "Compra", "Parcelas", "Pago"]
+        colunas = ["Crediário", "Parcelas"]
         if self.financeiro:
-            colunas += ["Saldo", "Vencido"]
+            colunas[1:1] = ["Compra"]
+            colunas += ["Pago", "Saldo", "Vencido"]
         colunas.append("1º vencimento")
         self.table = DataTable(colunas, stretch=None, sortable=False)
         self.table.doubleClicked.connect(lambda *_: self._open_credit())
@@ -257,15 +258,14 @@ class ClientDetailDialog(QDialog):
 
         rows = []
         for credit in credit_service.list_by_client(self.client_id):
-            celulas = [
-                text_item(f"#{credit['id']}", key=int(credit["id"]), bold=True),
-                money_item(credit["valor_total"]),
-                number_item(int(credit["parcelas"])),
-                money_item(credit["pago"], color=GREEN),
-            ]
+            celulas = [text_item(f"#{credit['id']}", key=int(credit["id"]), bold=True)]
+            if self.financeiro:
+                celulas.append(money_item(credit["valor_total"]))
+            celulas.append(number_item(int(credit["parcelas"])))
             if self.financeiro:
                 vencido = credit["vencido"]
                 celulas += [
+                    money_item(credit["pago"], color=GREEN),
                     money_item(credit["saldo"]),
                     money_item(vencido, color=RED if vencido > ZERO else TEXT_MUTED),
                 ]
